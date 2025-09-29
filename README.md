@@ -22,23 +22,33 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 * **🌐 Auto-detects your Home Assistant URLs** for clip links and Frigate shortcuts, with overrides for the Frigate host and port when you need them
 * **🎛️ Multiple notification devices** now available
 * **🐛 Debug mode** lets you preview all variables and logic without sending notifications
+* **🧭 Zone filtering controls** include/exclude modes, match by entered/current/either zones, and any/all logic — applied to initial, update, and LLMVision steps
+* **🔐 iOS live view** uses signed clip URLs when enabled
+* **🔗 Resilient URL handling** with derived `clip_url`, `clip_url_signed`, `snapshot_url`, `thumbnail_url`, `thumbnail_android_url`, and `frigate_review_url` (no hardcoded `:8123`)
+* **📉 Reduced noise**: for stationary objects, update notifications only fire on new snapshots or sublabel changes
+* **🧩 Compatibility**: requires Home Assistant 2024.6.0+
 
 ---
 
 ### 🎯 Zone Filters
 
-You can now restrict notifications to specific Frigate zones. In the blueprint, set "Zones to Notify On" to a comma-separated list like:
+Precisely control when notifications are sent based on Frigate zones:
 
-- `driveway`
-- `porch, sidewalk`
+- Zones to Notify On (`zones`): comma‑separated list like `driveway` or `porch, sidewalk` (blank = all zones)
+- Zone Filter Mode (`zone_filter_mode`): `include` (only notify on listed zones) or `exclude` (ignore listed zones)
+- Zone Match Type (`zone_match_type`): match by `entered`, `current`, or `either` zone lists
+- Zone Logic (`zone_logic`): when mode is `include`, require `any` or `all` of the listed zones to match
 
-Leave it blank to notify on all zones. Zone filters apply to:
+Filtering is applied to:
+- Initial notifications (event start)
+- Update notifications (e.g., sublabel changes)
+- Optional LLMVision analysis
 
-- The initial notification when the event starts
-- Subsequent update notifications (loitering/sublabel changes)
-- Optional LLMVision analysis step
+Matching is case‑insensitive.
 
-Zones are matched case-insensitively against Frigate's `entered_zones` for the event.
+Examples:
+- `driveway` → notify only when the event intersects the Driveway zone
+- `porch, sidewalk` with mode `include` and logic `any` → notify when either zone matches
 
 ---
 
@@ -49,6 +59,24 @@ Zones are matched case-insensitively against Frigate's `entered_zones` for the e
 * Home Assistant mobile app (for push notifications)
 * An input_boolean helper for multi-camera queuing
 * A dashboard to use as a landing page ( LLMVision event summary suggested )
+* Home Assistant 2024.6.0 or newer
+
+---
+
+### 🔗 Helper Variables in templates and notifications
+
+- clip_url — Derived URL to the event MP4 clip
+- clip_url_signed — Signed clip URL (used for iOS live view)
+- snapshot_url — URL to the event snapshot (JPG)
+- thumbnail_url — URL to the event thumbnail (JPG)
+- thumbnail_android_url — Android-optimized thumbnail URL
+- frigate_review_url — Link to Frigate UI /review for the camera/event
+- camera_name — Human‑friendly camera name (after expand/append options)
+- id — Frigate event ID
+- icon — MDI icon selected based on detected label
+- base_url / local_url — Resolved Home Assistant base URLs (auto from config if blank)
+- event_zones — Zones reported by the event (lowercased)
+- zone_match — True/false indicating if the event passes the zone filter
 
 ---
 
