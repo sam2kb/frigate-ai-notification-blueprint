@@ -504,6 +504,12 @@ action:
       thumbnail_android_url: >-
         {{ thumbnail_url ~ '?format=android' }}
 
+      # Clip readiness and click target (fallback to snapshot when clip isn't ready yet)
+      has_clip: >-
+        {{ (trigger.payload_json.get('after') or {}).get('has_clip', false) }}
+      click_target_url: >-
+        {{ clip_url if has_clip else snapshot_url }}
+
       # Frigate UI /review derivation
       frigate_base_candidate: >-
         {% set configured = input_frigate_url | default('', true) | trim %}
@@ -586,7 +592,7 @@ action:
               data: { ttl: 0, priority: high }
               attachment: { url: "{{ thumbnail_url }}" }
               image: "{{ thumbnail_android_url }}"
-              clickAction: "{{ clip_url }}"
+              clickAction: "{{ click_target_url }}"
               push: { interruption-level: active }
               alert_once: "{{ alert_once }}"
               actions:
@@ -632,6 +638,10 @@ action:
               {% endif %}
             sub_label_changed: "{{ sub_label_text != (event_before.get('sub_label') or '') }}"
             entered_zones_changed: "{{ before_zones != entered_zones }}"
+
+            # Update-loop: clip readiness and click target (fallback to snapshot)
+            has_clip_update: "{{ event_after.get('has_clip', false) }}"
+            click_target_url_update: "{{ clip_url if has_clip_update else snapshot_url }}"
 
             # --- UPDATE LOOP ZONE MATCH ---
             current_zones_lower: "{{ (event_after.get('current_zones', []) | map('lower') | list) }}"
@@ -751,7 +761,7 @@ action:
                             notification_icon: "{{ icon }}"
                             attachment: { url: "{{ thumbnail_url }}" }
                             image: "{{ thumbnail_android_url }}"
-                            clickAction: "{{ clip_url }}"
+                            clickAction: "{{ click_target_url_update }}"
                             push: { interruption-level: active }
                             alert_once: "{{ alert_once }}"
                             actions:

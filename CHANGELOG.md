@@ -33,11 +33,10 @@ All notable changes to this project will be documented in this file.
 - `base_url` / `local_url` defaults are now empty strings and auto-resolve from HA config.
 - iOS live view now uses the signed clip URL when enabled.
 
-### Fixed
-
 ### Misc
 - Default cooldown set to 1 minute.
- - Helper entity is optional and only used when LLM is enabled.
+- Helper entity is optional and only used when LLM is enabled.
+- Fallback to snapshot when clip isn't ready yet
 - `wait_for_trigger` value template now safely handles events with only `before` or `after` data.
 - URL building sanitizes trailing slashes and removes any existing port before applying `frigate_port`.
 - Mobile app notify service slugification now uses HA’s native rules, handling apostrophes/punctuation (e.g., “Bob’s” → `bob_s_...`).
