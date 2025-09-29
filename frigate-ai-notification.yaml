@@ -604,7 +604,7 @@ action:
                       tag: "{{ id }}"
                       group: "{{ camera_name }}"
                       notification_icon: "{{ icon }}"
-                      data: { ttl: 0, priority: high }
+                      data: { ttl: "0", priority: "high" }
                       attachment: { url: "{{ thumbnail_url }}" }
                       image: "{{ thumbnail_android_url }}"
                       clickAction: "{{ click_target_url }}"
@@ -631,7 +631,7 @@ action:
                   tag: "{{ id }}"
                   group: "{{ camera_name }}"
                   notification_icon: "{{ icon }}"
-                  data: { ttl: 0, priority: high }
+                  data: { ttl: "0", priority: "high" }
                   attachment: { url: "{{ thumbnail_url }}" }
                   image: "{{ thumbnail_android_url }}"
                   clickAction: "{{ click_target_url }}"
@@ -801,7 +801,7 @@ action:
                                     timeout: "{{ (input_notification_timeout * 60) | int }}"
                                     tag: "{{ id }}"
                                     group: "{{ camera_name }}"
-                                    data: { ttl: 0, priority: high }
+                                    data: { ttl: "0", priority: "high" }
                                     notification_icon: "{{ icon }}"
                                     attachment: { url: "{{ thumbnail_url }}" }
                                     image: "{{ thumbnail_android_url }}"
@@ -828,7 +828,7 @@ action:
                                 timeout: "{{ (input_notification_timeout * 60) | int }}"
                                 tag: "{{ id }}"
                                 group: "{{ camera_name }}"
-                                data: { ttl: 0, priority: high }
+                                data: { ttl: "0", priority: "high" }
                                 notification_icon: "{{ icon }}"
                                 attachment: { url: "{{ thumbnail_url }}" }
                                 image: "{{ thumbnail_android_url }}"
@@ -940,7 +940,7 @@ action:
                               tag: "{{ id }}"
                               group: "{{ camera_name }}"
                               notification_icon: "{{ icon }}"
-                              data: { ttl: 0, priority: high }
+                              data: { ttl: "0", priority: "high" }
                               attachment:
                                 url: >
                                   {% if input_ios_live_view and (base_url | string | length > 0) %}
@@ -973,7 +973,7 @@ action:
                           tag: "{{ id }}"
                           group: "{{ camera_name }}"
                           notification_icon: "{{ icon }}"
-                          data: { ttl: 0, priority: high }
+                          data: { ttl: "0", priority: "high" }
                           attachment:
                             url: >
                               {% if input_ios_live_view and (base_url | string | length > 0) %}
