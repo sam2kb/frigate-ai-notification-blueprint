@@ -121,12 +121,6 @@ blueprint:
           default: false
           selector: { boolean: {} }
 
-        dashboard:
-          name: Event Summary Dashboard
-          description: URI to open when the "View Summary" action is clicked.
-          default: ''
-          selector: { text: {} }
-
     quality_filters:
       name: Signal Quality Filters
       icon: mdi:tune-variant
@@ -156,6 +150,12 @@ blueprint:
       description: Tweak LLMVision settings and options
       collapsed: true
       input:
+        dashboard:
+          name: Event Summary Dashboard
+          description: Optional dashboard URL opened by the "View Summary" action; leave blank to hide the button.
+          default: ''
+          selector: { text: {} }
+
         generate_title:
           name: Generate Event Title
           description: Enable to generate a dynamic title for each event summary.
@@ -579,32 +579,61 @@ action:
         - variables:
             input_notify_device: >-
               {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
-        - service: "{{ input_notify_device }}"
-          data:
-            title: "{{ title }}"
-            message: "{{ message }}"
-            data:
-              channel: "{{ camera_name }} Notifications"
-              timeout: "{{ (input_notification_timeout * 60) | int }}"
-              tag: "{{ id }}"
-              group: "{{ camera_name }}"
-              notification_icon: "{{ icon }}"
-              data: { ttl: 0, priority: high }
-              attachment: { url: "{{ thumbnail_url }}" }
-              image: "{{ thumbnail_android_url }}"
-              clickAction: "{{ click_target_url }}"
-              push: { interruption-level: active }
-              alert_once: "{{ alert_once }}"
-              actions:
-                - action: URI
-                  title: View Clip
-                  uri: "{{ clip_url }}"
-                - action: URI
-                  title: View Summary
-                  uri: "{{ input_dashboard }}"
-                - action: URI
-                  title: Open Frigate
-                  uri: "{{ frigate_review_url }}"
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ (input_dashboard | default('', true) | string | trim) != '' }}"
+              sequence:
+                - service: "{{ input_notify_device }}"
+                  data:
+                    title: "{{ title }}"
+                    message: "{{ message }}"
+                    data:
+                      channel: "{{ camera_name }} Notifications"
+                      timeout: "{{ (input_notification_timeout * 60) | int }}"
+                      tag: "{{ id }}"
+                      group: "{{ camera_name }}"
+                      notification_icon: "{{ icon }}"
+                      data: { ttl: 0, priority: high }
+                      attachment: { url: "{{ thumbnail_url }}" }
+                      image: "{{ thumbnail_android_url }}"
+                      clickAction: "{{ click_target_url }}"
+                      push: { interruption-level: active }
+                      alert_once: "{{ alert_once }}"
+                      actions:
+                        - action: URI
+                          title: View Clip
+                          uri: "{{ clip_url }}"
+                        - action: URI
+                          title: View Summary
+                          uri: "{{ input_dashboard }}"
+                        - action: URI
+                          title: Open Frigate
+                          uri: "{{ frigate_review_url }}"
+          default:
+            - service: "{{ input_notify_device }}"
+              data:
+                title: "{{ title }}"
+                message: "{{ message }}"
+                data:
+                  channel: "{{ camera_name }} Notifications"
+                  timeout: "{{ (input_notification_timeout * 60) | int }}"
+                  tag: "{{ id }}"
+                  group: "{{ camera_name }}"
+                  notification_icon: "{{ icon }}"
+                  data: { ttl: 0, priority: high }
+                  attachment: { url: "{{ thumbnail_url }}" }
+                  image: "{{ thumbnail_android_url }}"
+                  clickAction: "{{ click_target_url }}"
+                  push: { interruption-level: active }
+                  alert_once: "{{ alert_once }}"
+                  actions:
+                    - action: URI
+                      title: View Clip
+                      uri: "{{ clip_url }}"
+                    - action: URI
+                      title: Open Frigate
+                      uri: "{{ frigate_review_url }}"
 
   # UPDATE LOOP — notify on new snapshot or sublabel change (respect zone filter)
   - repeat:
@@ -748,32 +777,61 @@ action:
                       - variables:
                           input_notify_device: >-
                             {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
-                      - service: "{{ input_notify_device }}"
-                        data:
-                          title: "{{ title }}"
-                          message: "{{ message }}"
-                          data:
-                            channel: "{{ camera_name }} Notifications"
-                            timeout: "{{ (input_notification_timeout * 60) | int }}"
-                            tag: "{{ id }}"
-                            group: "{{ camera_name }}"
-                            data: { ttl: 0, priority: high }
-                            notification_icon: "{{ icon }}"
-                            attachment: { url: "{{ thumbnail_url }}" }
-                            image: "{{ thumbnail_android_url }}"
-                            clickAction: "{{ click_target_url_update }}"
-                            push: { interruption-level: active }
-                            alert_once: "{{ alert_once }}"
-                            actions:
-                              - action: URI
-                                title: View Clip
-                                uri: "{{ clip_url }}"
-                              - action: URI
-                                title: View Summary
-                                uri: "{{ input_dashboard }}"
-                              - action: URI
-                                title: Open Frigate
-                                uri: "{{ frigate_review_url }}"
+                      - choose:
+                          - conditions:
+                              - condition: template
+                                value_template: "{{ (input_dashboard | default('', true) | string | trim) != '' }}"
+                            sequence:
+                              - service: "{{ input_notify_device }}"
+                                data:
+                                  title: "{{ title }}"
+                                  message: "{{ message }}"
+                                  data:
+                                    channel: "{{ camera_name }} Notifications"
+                                    timeout: "{{ (input_notification_timeout * 60) | int }}"
+                                    tag: "{{ id }}"
+                                    group: "{{ camera_name }}"
+                                    data: { ttl: 0, priority: high }
+                                    notification_icon: "{{ icon }}"
+                                    attachment: { url: "{{ thumbnail_url }}" }
+                                    image: "{{ thumbnail_android_url }}"
+                                    clickAction: "{{ click_target_url_update }}"
+                                    push: { interruption-level: active }
+                                    alert_once: "{{ alert_once }}"
+                                    actions:
+                                      - action: URI
+                                        title: View Clip
+                                        uri: "{{ clip_url }}"
+                                      - action: URI
+                                        title: View Summary
+                                        uri: "{{ input_dashboard }}"
+                                      - action: URI
+                                        title: Open Frigate
+                                        uri: "{{ frigate_review_url }}"
+                        default:
+                          - service: "{{ input_notify_device }}"
+                            data:
+                              title: "{{ title }}"
+                              message: "{{ message }}"
+                              data:
+                                channel: "{{ camera_name }} Notifications"
+                                timeout: "{{ (input_notification_timeout * 60) | int }}"
+                                tag: "{{ id }}"
+                                group: "{{ camera_name }}"
+                                data: { ttl: 0, priority: high }
+                                notification_icon: "{{ icon }}"
+                                attachment: { url: "{{ thumbnail_url }}" }
+                                image: "{{ thumbnail_android_url }}"
+                                clickAction: "{{ click_target_url_update }}"
+                                push: { interruption-level: active }
+                                alert_once: "{{ alert_once }}"
+                                actions:
+                                  - action: URI
+                                    title: View Clip
+                                    uri: "{{ clip_url }}"
+                                  - action: URI
+                                    title: Open Frigate
+                                    uri: "{{ frigate_review_url }}"
       until:
         - condition: template
           value_template: "{{ not wait.trigger or event.get('type') == 'end' }}"
@@ -857,38 +915,73 @@ action:
                 - variables:
                     input_notify_device: >-
                       {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
-                - service: "{{ input_notify_device }}"
-                  data:
-                    title: "{{ title }}"
-                    message: "{{ message }}"
-                    data:
-                      channel: "{{ camera }}_notifications"
-                      timeout: "{{ (input_notification_timeout * 60) | int }}"
-                      tag: "{{ id }}"
-                      group: "{{ camera_name }}"
-                      notification_icon: "{{ icon }}"
-                      data: { ttl: 0, priority: high }
-                      attachment:
-                        url: >
-                          {% if input_ios_live_view and (base_url | string | length > 0) %}
-                            {{ clip_url_signed }}
-                          {% else %}
-                            {{ thumbnail_url }}
-                          {% endif %}
-                      image: "{{ thumbnail_android_url }}"
-                      clickAction: "{{ clip_url }}"
-                      push: { interruption-level: active }
-                      alert_once: "{{ alert_once }}"
-                      actions:
-                        - action: URI
-                          title: View Clip
-                          uri: "{{ clip_url }}"
-                        - action: URI
-                          title: View Summary
-                          uri: "{{ input_dashboard }}"
-                        - action: URI
-                          title: Open Frigate
-                          uri: "{{ frigate_review_url }}"
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ (input_dashboard | default('', true) | string | trim) != '' }}"
+                      sequence:
+                        - service: "{{ input_notify_device }}"
+                          data:
+                            title: "{{ title }}"
+                            message: "{{ message }}"
+                            data:
+                              channel: "{{ camera }}_notifications"
+                              timeout: "{{ (input_notification_timeout * 60) | int }}"
+                              tag: "{{ id }}"
+                              group: "{{ camera_name }}"
+                              notification_icon: "{{ icon }}"
+                              data: { ttl: 0, priority: high }
+                              attachment:
+                                url: >
+                                  {% if input_ios_live_view and (base_url | string | length > 0) %}
+                                    {{ clip_url_signed }}
+                                  {% else %}
+                                    {{ thumbnail_url }}
+                                  {% endif %}
+                              image: "{{ thumbnail_android_url }}"
+                              clickAction: "{{ clip_url }}"
+                              push: { interruption-level: active }
+                              alert_once: "{{ alert_once }}"
+                              actions:
+                                - action: URI
+                                  title: View Clip
+                                  uri: "{{ clip_url }}"
+                                - action: URI
+                                  title: View Summary
+                                  uri: "{{ input_dashboard }}"
+                                - action: URI
+                                  title: Open Frigate
+                                  uri: "{{ frigate_review_url }}"
+                  default:
+                    - service: "{{ input_notify_device }}"
+                      data:
+                        title: "{{ title }}"
+                        message: "{{ message }}"
+                        data:
+                          channel: "{{ camera }}_notifications"
+                          timeout: "{{ (input_notification_timeout * 60) | int }}"
+                          tag: "{{ id }}"
+                          group: "{{ camera_name }}"
+                          notification_icon: "{{ icon }}"
+                          data: { ttl: 0, priority: high }
+                          attachment:
+                            url: >
+                              {% if input_ios_live_view and (base_url | string | length > 0) %}
+                                {{ clip_url_signed }}
+                              {% else %}
+                                {{ thumbnail_url }}
+                              {% endif %}
+                          image: "{{ thumbnail_android_url }}"
+                          clickAction: "{{ clip_url }}"
+                          push: { interruption-level: active }
+                          alert_once: "{{ alert_once }}"
+                          actions:
+                            - action: URI
+                              title: View Clip
+                              uri: "{{ clip_url }}"
+                            - action: URI
+                              title: Open Frigate
+                              uri: "{{ frigate_review_url }}"
           - delay: "{{ input_cooldown }}"
     default:
       - delay: "{{ input_cooldown }}"
