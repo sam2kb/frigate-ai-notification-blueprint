@@ -69,8 +69,11 @@ blueprint:
           options: [any, all]
 
     helper:
-      name: Helper
-      description: Input Boolean helper used for multi-camera / LLM gating.
+      name: Input Helper
+      description: >
+        Input helper used as a simple "busy" flag when multiple cameras or LLM analysis
+        are active. Open the picker → click **Create a new Toggle helper** → name it
+        "Frigate LLM Busy" → **Create**. No other setup required.
       selector:
         entity:
           domain: [input_boolean]
