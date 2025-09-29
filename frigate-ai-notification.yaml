@@ -81,14 +81,15 @@ blueprint:
 
     cooldown:
       name: Cooldown
-      description: Minimum time between notifications.
+      description: The cooldown is a global throttle for a single automation run (per camera/event), and it protects both push notifications and LLM step from firing too often.
+      default: { hours: 0, minutes: 1, seconds: 0 }
       selector:
         duration:
           enable_day: true
 
     notify_device:
-      name: Mobile Device
-      description: Select phone/tablet (Home Assistant Companion app) to receive the notification.
+      name: Mobile Devices
+      description: Select devices (Home Assistant Companion app) to receive the notification.
       selector:
         device:
           integration: mobile_app
