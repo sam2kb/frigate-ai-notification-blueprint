@@ -1,0 +1,656 @@
+blueprint:
+  name: Frigate Home Assistant AI Notification Blueprint
+  description: >
+    Sends notifications for Frigate events, with optional LLM clip analysis, Android/iOS
+    support, zones filtering, and extended logic for loitering or sublabel changes.
+    Supports notification cooldown, custom icons, click actions, and dynamic message formatting.
+  domain: automation
+  homeassistant:
+    min_version: 2024.6.0
+
+  input:
+    camera:
+      name: Frigate Camera Entity
+      description: The Frigate camera entity to monitor for events.
+      selector:
+        entity:
+          domain: [camera]
+          multiple: false
+
+    labels:
+      name: Labels to Notify On
+      description: List of Frigate object labels to notify on. Leave empty to match all.
+      default: [person]
+      selector:
+        select:
+          multiple: true
+          options: [person, dog, cat, car, package, bicycle, face]
+          sort: false
+          custom_value: false
+
+    zones:
+      name: Zones to Notify On
+      description: >
+        Comma-separated list of Frigate zone names. Leave empty to match all zones. Example: driveway, porch
+      default: ''
+      selector:
+        text: {}
+
+    helper:
+      name: Helper
+      description: Input Boolean helper used for multi-camera logic.
+      selector:
+        entity:
+          domain: [input_boolean]
+          multiple: false
+
+    cooldown:
+      name: Cooldown
+      description: Minimum time between notifications.
+      selector:
+        duration:
+          enable_day: true
+
+    notify_device:
+      name: Mobile Device
+      description: Select the phone or tablet (with the Home Assistant app) to receive the notification.
+      selector:
+        device:
+          integration: mobile_app
+          multiple: true
+
+    ios_live_view:
+      name: iOS Notification
+      description: Enable if the target device runs iOS for enhanced notification support.
+      default: false
+      selector:
+        boolean: {}
+
+    notification_customization:
+      name: Notification Customization
+      icon: mdi:message-alert
+      description: Configure optional notification features
+      collapsed: true
+      input:
+        append:
+          name: Append Camera
+          description: Add the word "Camera" to the end of the camera name (e.g., "Back Yard" → "Back Yard Camera").
+          default: false
+          selector: { boolean: {} }
+
+        expand:
+          name: Expand Cam
+          description: Replace "Cam" with "Camera" in the camera name (e.g., "Back Yard Cam" → "Back Yard Camera").
+          default: false
+          selector: { boolean: {} }
+
+        dashboard:
+          name: Event Summary Dashboard
+          description: URI to open when the "View Summary" action is clicked.
+          default: ''
+          selector: { text: {} }
+
+    llmvision_tweaks:
+      name: LLMVision Tweaks
+      icon: mdi:brain
+      description: Tweak LLMVision settings and options
+      collapsed: true
+      input:
+        generate_title:
+          name: Generate Event Title
+          description: Enable to generate a dynamic title for each event summary.
+          default: true
+          selector: { boolean: {} }
+
+        include_filename:
+          name: Include Filenames
+          description: Attach filenames when sending Frigate clips.
+          default: false
+          selector: { boolean: {} }
+
+        expose_images:
+          name: Expose Images
+          description: Save analyzed frames to `/www/llmvision` for use in notifications. File paths will be included in the LLM response.
+          default: true
+          selector: { boolean: {} }
+
+        provider:
+          name: Provider
+          description: Choose the LLMVision provider. See documentation for supported options.
+          default: ''
+          selector:
+            config_entry:
+              integration: llmvision
+
+        model:
+          name: Model
+          description: Language model to use. Depends on the selected provider.
+          default: gemini-2.0-flash
+          selector:
+            text:
+              multiline: false
+              multiple: false
+
+        prompt:
+          name: LLMVision Prompt
+          default: >
+            Summarize the observed events using clear, neutral third-person language. Use timestamps to ensure the summary
+            follows the correct chronological order. Focus on moving subjects such as people, vehicles, animals, packages,
+            equipment, or other active elements. Ignore static background objects unless directly interacted with. Include
+            stationary vehicles only if they are clearly identifiable as delivery or emergency vehicles, mentioning any visible
+            company names or uniform details. Describe activity relevant to the general monitored area without referencing
+            camera angles, timestamps, or observers. Present the events as if witnessed in real time, avoiding frame-by-frame
+            descriptions or introductory phrases. Summarize naturally in a single, cohesive narrative, keeping it concise and
+            suitable for brief notifications. When context strongly suggests a likely outcome, describe it confidently. Do not
+            mention the absence of activity or objects, nor conclude with statements about what was or wasn’t observed.
+          selector:
+            text:
+              multiline: true
+              multiple: false
+
+        max_tokens:
+          name: Maximum Tokens
+          description: Limit the number of tokens used in the summary (controls length).
+          default: 20
+          selector:
+            number: { min: 1, max: 100, step: 1, mode: slider }
+
+        temperature:
+          name: Temperature
+          description: Adjusts response randomness. Lower values yield more accurate, consistent results; higher values are more creative.
+          default: 0.1
+          selector:
+            number: { min: 0.1, max: 1.0, step: 0.1, mode: slider }
+
+        max_frames:
+          name: Total Frames
+          description: Number of frames to analyze from the event.
+          default: 3
+          selector:
+            number: { min: 1, max: 60, step: 1, mode: slider }
+
+        frigate_retry_attempts:
+          name: Retry Attempts
+          description: Number of retry attempts if the Frigate clip isn’t ready.
+          default: 4
+          selector:
+            number: { min: 1, max: 20, step: 1, mode: slider }
+
+        frigate_retry_time:
+          name: Retry Timing
+          description: How long to keep retrying the LLM request if the clip isn't ready.
+          default: { hours: 0, minutes: 0, seconds: 30 }
+          selector: { duration: {} }
+
+        target_width:
+          name: Target Width
+          description: Downscale frame width to reduce token usage and speed up processing.
+          default: 1920
+          selector:
+            number: { min: 480, max: 3840, step: 20, mode: slider }
+
+    advanced_options:
+      name: Advanced Options
+      icon: mdi:cog
+      description: Customize Frigate, Home Assistant, and other details
+      collapsed: true
+      input:
+        sublabel:
+          name: Sublabels
+          description: Include Frigate sublabels in the prompt if available.
+          default: true
+          selector: { boolean: {} }
+
+        base_url:
+          name: External Base URL
+          description: Public URL for Home Assistant. Leave empty to use configured external URL.
+          default: ''
+          selector: { text: {} }
+
+        local_url:
+          name: Internal Base URL
+          description: Local URL for Home Assistant. Leave empty to use configured internal URL.
+          default: ''
+          selector: { text: {} }
+
+        frigate_url:
+          name: Frigate Instance URL
+          description: Base URL for Frigate web UI (omit trailing /review). Leave empty to derive automatically.
+          default: ''
+          selector: { text: {} }
+
+        frigate_port:
+          name: Frigate UI Port
+          description: Used when deriving the Frigate UI link if no instance URL is provided. Set to 0 to skip adding a port.
+          default: 8971
+          selector:
+            number: { min: 0, max: 65535, step: 1 }
+
+        debug:
+          name: Debugging
+          description: Enable debug logging for this automation.
+          default: false
+          selector: { boolean: {} }
+
+        notification_timeout:
+          name: Notification Timeout (minutes)
+          description: Time before Android automatically clears the notification
+          default: 10
+          selector:
+            number: { min: 1, max: 120, step: 1, unit_of_measurement: minutes, mode: slider }
+
+  source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
+
+trigger_variables:
+  input_camera: !input camera
+  camera: "{{ input_camera | replace('camera.', '') }}"
+
+trigger:
+  - trigger: mqtt
+    id: frigate-event
+    topic: frigate/events
+    # Only fire "new" events for this camera
+    payload: "{{ camera }}/new"
+    value_template: "{{ value_json['after']['camera'] | lower | replace('-','_') }}/{{ value_json['type'] }}"
+
+condition: []
+
+action:
+  - variables:
+      # Inputs (flatten nested groups)
+      input_append: !input append
+      input_dashboard: !input dashboard
+      input_expand: !input expand
+      input_provider: !input provider
+      input_frigate_retry_attempts: !input frigate_retry_attempts
+      input_frigate_retry_time: !input frigate_retry_time
+      input_max_frames: !input max_frames
+      input_notification_timeout: !input notification_timeout
+      input_ios_live_view: !input ios_live_view
+      input_include_filename: !input include_filename
+      input_generate_title: !input generate_title
+      input_expose_images: !input expose_images
+      input_model: !input model
+      input_target_width: !input target_width
+      input_max_tokens: !input max_tokens
+      input_temperature: !input temperature
+      input_prompt: !input prompt
+      input_sublabel: !input sublabel
+      input_cooldown: !input cooldown
+      input_helper: !input helper
+      input_debug: !input debug
+      input_base_url: !input base_url
+      input_local_url: !input local_url
+      input_frigate_url: !input frigate_url
+      input_frigate_port: !input frigate_port
+      ha_external_url: "{{ state_attr('homeassistant', 'external_url') | default('', true) | trim }}"
+      ha_internal_url: "{{ state_attr('homeassistant', 'internal_url') | default('', true) | trim }}"
+      input_labels: !input labels
+      labels: "{{ (input_labels | default([], true) | list) | map('lower') | list }}"
+      input_zones: !input zones
+      zones_filter: >-
+        {% set z = (input_zones | default('', true) | string) %}
+        {{ z.split(',') | map('trim') | select('ne','') | map('lower') | list }}
+
+      object: "{{ trigger.payload_json['after']['label'] }}"
+      label: "{{ object | title }}"
+      raw_device: !input notify_device
+
+      camera_name: >-
+        {% set n = camera | replace('_', ' ') | title %}
+        {% if input_expand %}{% set n = n | regex_replace('(?i)\\bcam\\b', 'Camera') %}{% endif %}
+        {{ n ~ (' Camera' if input_append else '') }}
+
+      cooldown: >-
+        {{ '%02d:%02d:%02d' | format(input_cooldown.hours + (input_cooldown.days * 24),
+                                      input_cooldown.minutes, input_cooldown.seconds) }}
+
+      # URL derivation
+      base_url: >-
+        {% set configured = input_base_url | default('', true) | trim %}
+        {% set fallback = ha_external_url or ha_internal_url %}
+        {% set value = configured if configured else fallback %}
+        {{ (value or '') | trim | rstrip('/') }}
+
+      local_url: >-
+        {% set configured = input_local_url | default('', true) | trim %}
+        {% set fallback = ha_internal_url or ha_external_url %}
+        {% set value = configured if configured else fallback %}
+        {{ (value or base_url) | trim | rstrip('/') }}
+
+      base_title: "{{ label }} detected"
+      base_message: "A {{ label }} was detected on the {{ camera_name }}."
+      title: "{{ base_title }}"
+      message: "{{ base_message }}"
+      fps: "{{ states('sensor.' + camera + '_camera_fps') | int(5) }}"
+      id: "{{ trigger.payload_json['after']['id'] }}"
+
+      icon: >-
+        mdi:{% if label == 'Person' %}account-outline{% elif label == 'Dog' %}dog{% elif label == 'Cat' %}cat{% elif label == 'Car' %}car{% else %}home-assistant{% endif %}
+
+      clip_path: "/api/frigate/notifications/{{ id }}/{{ camera }}/clip.mp4"
+      snapshot_path: "/api/frigate/notifications/{{ id }}/snapshot.jpg"
+      thumbnail_path: "/api/frigate/notifications/{{ id }}/thumbnail.jpg"
+
+      clip_url: >-
+        {{ (base_url ~ clip_path) if base_url else clip_path }}
+      clip_url_signed: "{{ clip_url }}?sign=true"
+      snapshot_url: >-
+        {{ (base_url ~ snapshot_path) if base_url else snapshot_path }}
+      thumbnail_url: >-
+        {{ (base_url ~ thumbnail_path) if base_url else thumbnail_path }}
+      thumbnail_android_url: >-
+        {{ thumbnail_url ~ '?format=android' }}
+
+      # Frigate UI /review derivation
+      frigate_base_candidate: >-
+        {% set configured = input_frigate_url | default('', true) | trim %}
+        {% if configured %}
+          {{ configured | rstrip('/') }}
+        {% else %}
+          {% set fallback = local_url or base_url %}
+          {% if fallback %}
+            {{ fallback | rstrip('/') | regex_replace(':(\\d+)$', '') }}
+          {% else %}
+            {{ '' }}
+          {% endif %}
+        {% endif %}
+      frigate_port_value: >-
+        {% if input_frigate_url | default('', true) | trim %}
+          {{ '' }}
+        {% else %}
+          {% set port = input_frigate_port | int(0) %}
+          {{ port if port > 0 else '' }}
+        {% endif %}
+      frigate_review_url: >-
+        {% set base = frigate_base_candidate | trim %}
+        {% if not base %}
+          /api/frigate/review
+        {% else %}
+          {% set port = frigate_port_value | trim %}
+          {% if port %}
+            {% if '://' in base %}
+              {% set parts = base.split('://', 1) %}
+              {% set scheme = parts[0] %}
+              {% set rest = parts[1] %}
+              {% set host = rest.split('/', 1)[0] %}
+              {% set suffix = '/' ~ rest.split('/', 1)[1] if '/' in rest else '' %}
+              {% set host_clean = host | regex_replace(':(\\d+)$', '') %}
+              {{ scheme }}://{{ host_clean }}:{{ port }}{{ suffix }}/review
+            {% else %}
+              {{ base | regex_replace(':(\\d+)$', '') }}:{{ port }}/review
+            {% endif %}
+          {% else %}
+            {{ base }}/review
+          {% endif %}
+        {% endif %}
+
+      update_thumbnail: true
+      alert_once: true
+
+      # Initial event zones + filter result
+      event_zones: >-
+        {{ (trigger.payload_json['after'].get('entered_zones', []) or []) | map('lower') | list }}
+      zone_match: >-
+        {% set filter = zones_filter %}
+        {{ (not filter|length) or ((event_zones | select('in', filter) | list | length) > 0) }}
+
+  - condition: template
+    value_template: "{{ not labels|length or object in labels }}"
+
+  - condition: template
+    value_template: "{{ zone_match }}"
+
+  - repeat:
+      for_each: "{{ raw_device }}"
+      sequence:
+        - variables:
+            input_notify_device: >-
+              {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
+        - service: "{{ input_notify_device }}"
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+            data:
+              channel: "{{ camera_name }} Notifications"
+              timeout: "{{ (input_notification_timeout * 60) | int }}"
+              tag: "{{ id }}"
+              group: "{{ camera_name }}"
+              notification_icon: "{{ icon }}"
+              data: { ttl: 0, priority: high }
+              attachment: { url: "{{ thumbnail_url }}" }
+              image: "{{ thumbnail_android_url }}"
+              clickAction: "{{ clip_url }}"
+              push: { interruption-level: active }
+              alert_once: "{{ alert_once }}"
+              actions:
+                - action: URI
+                  title: View Clip
+                  uri: "{{ clip_url }}"
+                - action: URI
+                  title: View Summary
+                  uri: "{{ input_dashboard }}"
+                - action: URI
+                  title: Open Frigate
+                  uri: "{{ frigate_review_url }}"
+
+  # UPDATE LOOP — notify on new snapshot or sublabel change (and passes zone filter)
+  - repeat:
+      sequence:
+        - wait_for_trigger:
+            - trigger: mqtt
+              topic: frigate/events
+              value_template: >
+                {{ value_json['after']['id'] if value_json.get('after') is not none else value_json.get('before', {}).get('id') }}
+              payload: "{{ id }}"
+          timeout: "{{ input_cooldown }}"
+          continue_on_timeout: true
+
+        - variables:
+            event: "{{ wait.trigger.payload_json if wait.trigger else {} }}"
+            event_before: "{{ event.get('before', {}) or {} }}"
+            event_after: "{{ event.get('after', {}) or {} }}"
+            before_zones: "{{ event_before.get('entered_zones', []) or [] }}"
+            entered_zones: "{{ event_after.get('entered_zones', []) or [] }}"
+            new_snapshot: "{{ update_thumbnail and (event_after.get('snapshot_time') != event_before.get('snapshot_time')) }}"
+            stationary_moved: "{{ (event_after.get('position_changes', 0) | int(0)) > (event_before.get('position_changes', 0) | int(0)) }}"
+            is_stationary: "{{ event_after.get('stationary', event_after.get('motionless', False)) }}"
+            sub_label: "{{ event_after.get('sub_label') }}"
+            sub_label_text: >-
+              {% if sub_label is string %}
+                {{ sub_label }}
+              {% elif sub_label is sequence and not (sub_label is string) %}
+                {{ sub_label | join(', ') }}
+              {% else %}
+                {{ '' }}
+              {% endif %}
+            sub_label_changed: "{{ sub_label_text != (event_before.get('sub_label') or '') }}"
+            entered_zones_changed: "{{ before_zones != entered_zones }}"
+            zone_match_update: >-
+              {% set filter = zones_filter %}
+              {% if not filter|length %}
+                true
+              {% else %}
+                {{ ( (entered_zones | map('lower') | select('in', filter) | list | length) > 0 ) }}
+              {% endif %}
+            title: >-
+              {% if sub_label_text %}
+                {{ sub_label_text }} detected on the {{ camera_name }}.
+              {% else %}
+                {{ base_title }}
+              {% endif %}
+            message: >-
+              {% if sub_label_text %}
+                {{ base_message }} (Updated sub-label: {{ sub_label_text }})
+              {% else %}
+                {{ base_message }}
+              {% endif %}
+
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ input_debug }}"
+              sequence:
+                - service: logbook.log
+                  data:
+                    name: Frigate Notification
+                    message: >
+                      DEBUG (update loop):
+                        Event ID: {{ id }}
+                        Trigger type: {{ event.get('type', 'unknown') }}
+                        New snapshot: {{ new_snapshot }}
+                        Stationary moved: {{ stationary_moved }}
+                        Is stationary now: {{ is_stationary }}
+                        Sublabel changed: {{ sub_label_changed }}
+                        Entered zones changed: {{ entered_zones_changed }}
+                        Zone match: {{ zone_match_update }}
+
+        - choose:
+            - conditions:
+                # Only notify if there is a material update AND it passes zone filter.
+                # Also ignore stationary objects unless there's a new snapshot or sublabel change.
+                - condition: template
+                  value_template: "{{ (new_snapshot or sub_label_changed) and zone_match_update and (not is_stationary or sub_label_changed) }}"
+              sequence:
+                - repeat:
+                    for_each: "{{ raw_device }}"
+                    sequence:
+                      - variables:
+                          input_notify_device: >-
+                            {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
+                      - service: "{{ input_notify_device }}"
+                        data:
+                          title: "{{ title }}"
+                          message: "{{ message }}"
+                          data:
+                            channel: "{{ camera_name }} Notifications"
+                            timeout: "{{ (input_notification_timeout * 60) | int }}"
+                            tag: "{{ id }}"
+                            group: "{{ camera_name }}"
+                            data: { ttl: 0, priority: high }
+                            notification_icon: "{{ icon }}"
+                            attachment: { url: "{{ thumbnail_url }}" }
+                            image: "{{ thumbnail_android_url }}"
+                            clickAction: "{{ clip_url }}"
+                            push: { interruption-level: active }
+                            alert_once: "{{ alert_once }}"
+                            actions:
+                              - action: URI
+                                title: View Clip
+                                uri: "{{ clip_url }}"
+                              - action: URI
+                                title: View Summary
+                                uri: "{{ input_dashboard }}"
+                              - action: URI
+                                title: Open Frigate
+                                uri: "{{ frigate_review_url }}"
+      until:
+        - condition: template
+          value_template: "{{ not wait.trigger or event.get('type') == 'end' }}"
+
+  # LLMVision (optional)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ (input_provider | default('', true) | string | trim) != '' }}"
+          - condition: template
+            value_template: "{{ zone_match }}"
+        sequence:
+          - delay: "00:00:30"
+
+          - if:
+              - condition: state
+                entity_id: !input helper
+                state: "on"
+            then:
+              - wait_for_trigger:
+                  - platform: state
+                    entity_id: !input helper
+                    from: "on"
+                    to: "off"
+                timeout: { hours: 0, minutes: 3, seconds: 0 }
+                continue_on_timeout: false
+
+          - service: input_boolean.turn_on
+            target: { entity_id: !input helper }
+
+          - action: llmvision.video_analyzer
+            alias: "LLM Vision: Analyze Frigate Clip"
+            data:
+              remember: true
+              model: "{{ input_model }}"
+              provider: "{{ input_provider }}"
+              frigate_retry_attempts: "{{ input_frigate_retry_attempts }}"
+              frigate_retry_seconds: >-
+                {% set d = input_frigate_retry_time %}
+                {{ (d.hours | default(0)) * 3600 + (d.minutes | default(0)) * 60 + (d.seconds | default(0)) }}
+              max_frames: "{{ input_max_frames }}"
+              include_filename: "{{ input_include_filename }}"
+              target_width: "{{ input_target_width }}"
+              max_tokens: "{{ input_max_tokens }}"
+              temperature: "{{ input_temperature }}"
+              generate_title: "{{ input_generate_title }}"
+              expose_images: "{{ input_expose_images }}"
+              event_id: "{{ id }}"
+              message: >-
+                {{ input_prompt }}
+                {% if input_sublabel and sub_label_text %}
+                  These images have already been passed to DeepStack and Double Take and {{ sub_label_text }} has been identified, use this knowledge as well.
+                {% endif %}
+            response_variable: response
+
+          - service: input_boolean.turn_off
+            target: { entity_id: !input helper }
+
+          - variables:
+              title: >-
+                {% if input_generate_title and (response.response_title | default('') | trim != '') %}
+                  {{ response.response_title }}
+                {% else %}
+                  {{ base_title }}
+                {% endif %}
+              message: "{{ response.response_text | default(base_message) }}"
+
+          - repeat:
+              for_each: "{{ raw_device }}"
+              sequence:
+                - variables:
+                    input_notify_device: >-
+                      {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
+                - service: "{{ input_notify_device }}"
+                  data:
+                    title: "{{ title }}"
+                    message: "{{ message }}"
+                    data:
+                      channel: "{{ camera }}_notifications"
+                      timeout: "{{ (input_notification_timeout * 60) | int }}"
+                      tag: "{{ id }}"
+                      group: "{{ camera_name }}"
+                      notification_icon: "{{ icon }}"
+                      data: { ttl: 0, priority: high }
+                      attachment:
+                        url: >
+                          {% if input_ios_live_view %}
+                            {{ clip_url_signed }}
+                          {% else %}
+                            {{ thumbnail_url }}
+                          {% endif %}
+                      image: "{{ thumbnail_android_url }}"
+                      clickAction: "{{ clip_url }}"
+                      push: { interruption-level: active }
+                      alert_once: "{{ alert_once }}"
+                      actions:
+                        - action: URI
+                          title: View Clip
+                          uri: "{{ clip_url }}"
+                        - action: URI
+                          title: View Summary
+                          uri: "{{ input_dashboard }}"
+                        - action: URI
+                          title: Open Frigate
+                          uri: "{{ frigate_review_url }}"
+          - delay: "{{ input_cooldown }}"
+    default:
+      - delay: "{{ input_cooldown }}"
+
+mode: single
