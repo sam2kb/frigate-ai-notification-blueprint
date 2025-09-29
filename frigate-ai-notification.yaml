@@ -11,7 +11,7 @@ blueprint:
 
   input:
     camera:
-      name: Frigate Camera Entity
+      name: Frigate Cameras
       description: Select one or more Frigate cameras to monitor for events.
       selector:
         entity:
