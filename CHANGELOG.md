@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 - iOS live view attachment falls back to the thumbnail when External Base URL is blank (ensures off‑LAN behavior).
 
 ### Fixed
-- Cooldown formatting guarded to avoid `UndefinedError` when `days` is missing from the duration object.
+- Cooldown formatting guarded to avoid `UndefinedError` and `Unsupported operand type(s)` errors.
 - Removed use of `camera_slugs` in the MQTT template; camera filtering is applied in action conditions (no more “camera_slugs undefined” warnings).
 - FCM nested data payload values are now strings (`ttl`, `priority`) to satisfy Firebase requirements.
 - Notification clickAction falls back to the snapshot when the clip is not yet ready.

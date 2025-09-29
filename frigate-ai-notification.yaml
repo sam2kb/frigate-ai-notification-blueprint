@@ -464,12 +464,18 @@ action:
         {% if input_expand %}{% set n = n | regex_replace('(?i)\\bcam\\b', 'Camera') %}{% endif %}
         {{ n ~ (' Camera' if input_append else '') }}
 
-      cooldown: >-
+      cooldown_str: >-
         {% set d = input_cooldown %}
-        {% set h = (d.hours | default(0)) + ((d.days | default(0)) * 24) %}
-        {% set m = d.minutes | default(0) %}
-        {% set s = d.seconds | default(0) %}
+        {% set h = (d.get('hours', 0) | int(0)) + ((d.get('days', 0) | int(0)) * 24) %}
+        {% set m = d.get('minutes', 0) | int(0) %}
+        {% set s = d.get('seconds', 0) | int(0) %}
         {{ '%02d:%02d:%02d' | format(h, m, s) }}
+      cooldown_td: "{{ input_cooldown }}"
+      cooldown_secs: >-
+        {% set d = input_cooldown %}
+        {{ ((d.get('hours',0) | int(0) + (d.get('days',0) | int(0)) * 24) * 3600)
+           + ((d.get('minutes',0) | int(0)) * 60)
+           + (d.get('seconds',0) | int(0)) }}
 
       # URL derivation
       base_url: >-
@@ -655,7 +661,7 @@ action:
               value_template: >
                 {{ value_json['after']['id'] if value_json.get('after') is not none else value_json.get('before', {}).get('id') }}
               payload: "{{ id }}"
-          timeout: "{{ input_cooldown }}"
+          timeout: "{{ cooldown_td }}"
           continue_on_timeout: true
 
         - variables:
@@ -993,9 +999,9 @@ action:
                             - action: URI
                               title: Open Frigate
                               uri: "{{ frigate_review_url }}"
-          - delay: "{{ input_cooldown }}"
+          - delay: "{{ cooldown_td }}"
     default:
-      - delay: "{{ input_cooldown }}"
+      - delay: "{{ cooldown_td }}"
 
 mode: parallel
 max: 25
