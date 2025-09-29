@@ -15,7 +15,7 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 #### 💡 What Frigate AI Notification Does
 
 * **🚨 Listens for new Frigate detection events** from any camera you choose using MQTT
-* **🧠 Integrates with LLMVision** to enrich notifications with event summaries
+* **🧠 Integrates with LLMVision (optional)** to enrich notifications with event summaries
 * **🕒 Enforces per‑camera cooldowns** so you’re not spammed when a squirrel does laps in your yard
 * **📱 Pushes mobile notifications** with custom text, camera names, and optional sublabels (e.g., who or what was recognized)
 * **🧩 Uses input helpers** so you can easily reuse this blueprint across cameras without editing YAML
@@ -54,14 +54,17 @@ Examples:
 
 ---
 
-### ⚙️ Requirements:
+### ⚙️ Requirements & optional integrations
 
+Required:
 * [Frigate installed](https://docs.frigate.video/integrations/home-assistant/) with MQTT events enabled
-* [LLMVision](https://llmvision.org/) installed and configured
 * Home Assistant mobile app (for push notifications)
-* An input_boolean helper for multi-camera queuing
-* A dashboard to use as a landing page ( LLMVision event summary suggested )
 * Home Assistant 2024.6.0 or newer
+
+Optional:
+* [LLMVision](https://llmvision.org/) — leave the Provider input blank to disable AI entirely
+* input_boolean helper — only used to gate LLM across multiple cameras; not needed if LLM is disabled
+* A dashboard to use as a landing page (recommended for LLMVision summaries)
 
 ---
 

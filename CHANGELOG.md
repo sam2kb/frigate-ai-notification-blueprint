@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
   - Zone Logic (`zone_logic`): When mode is `include`, require `any` or `all` of the listed zones to match.
   - Filtering applies to initial notifications, update notifications, and LLMVision analysis.
 - Multi-camera input: Select multiple Frigate camera entities; events are filtered to the selected cameras.
+ - LLMVision integration is fully optional; leave Provider blank to disable.
 - Advanced Frigate UI endpoint options:
   - Frigate Instance URL (`frigate_url`)
   - Frigate UI Port (`frigate_port`)
@@ -32,6 +33,7 @@ All notable changes to this project will be documented in this file.
 
 ### Misc
 - Default cooldown set to 1 minute.
+ - Helper entity is optional and only used when LLM is enabled.
 - `wait_for_trigger` value template now safely handles events with only `before` or `after` data.
 - URL building sanitizes trailing slashes and removes any existing port before applying `frigate_port`.
 - Mobile app notify service slugification now uses HA’s native rules, handling apostrophes/punctuation (e.g., “Bob’s” → `bob_s_...`).
