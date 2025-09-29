@@ -26,7 +26,6 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 * **🔐 iOS live view** uses signed clip URLs when enabled
 * **🔗 Resilient URL handling** with derived `clip_url`, `clip_url_signed`, `snapshot_url`, `thumbnail_url`, `thumbnail_android_url`, and `frigate_review_url` (no hardcoded `:8123`)
 * **📉 Reduced noise**: for stationary objects, update notifications only fire on new snapshots or sublabel changes
-* **🧩 Compatibility**: requires Home Assistant 2024.6.0+
 
 ---
 
@@ -65,18 +64,18 @@ Examples:
 
 ### 🔗 Helper Variables in templates and notifications
 
-- clip_url — Derived URL to the event MP4 clip
-- clip_url_signed — Signed clip URL (used for iOS live view)
-- snapshot_url — URL to the event snapshot (JPG)
-- thumbnail_url — URL to the event thumbnail (JPG)
-- thumbnail_android_url — Android-optimized thumbnail URL
-- frigate_review_url — Link to Frigate UI /review for the camera/event
-- camera_name — Human‑friendly camera name (after expand/append options)
-- id — Frigate event ID
-- icon — MDI icon selected based on detected label
-- base_url / local_url — Resolved Home Assistant base URLs (auto from config if blank)
-- event_zones — Zones reported by the event (lowercased)
-- zone_match — True/false indicating if the event passes the zone filter
+- `clip_url` → Derived URL to the event MP4 clip
+- `clip_url_signed` → Signed clip URL (used for iOS live view)
+- `snapshot_url` → URL to the event snapshot (JPG)
+- `thumbnail_url` → URL to the event thumbnail (JPG)
+- `thumbnail_android_url` → Android‑optimized thumbnail URL
+- `frigate_review_url` → Link to Frigate UI /review for the camera/event
+- `camera_name` → Human‑friendly camera name (after expand/append options)
+- `id` → Frigate event ID
+- `icon` → MDI icon selected based on detected label
+- `base_url` / `local_url` → Resolved Home Assistant base URLs (auto from config if blank)
+- `event_zones` → Zones reported by the event (lowercased)
+- `zone_match` → True/false indicating if the event passes the zone filter
 
 ---
 
