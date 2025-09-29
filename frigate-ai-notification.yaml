@@ -316,17 +316,15 @@ trigger:
     topic: frigate/events
     payload: pass
     value_template: >-
-      {% set cam = (value_json.get('after',{}).get('camera')
-                    or value_json.get('before',{}).get('camera') or '')
-                    | lower | replace('-','_') %}
       {% set t = value_json.get('type','') %}
-      {{ 'pass' if (cam in camera_slugs and t == 'new') else '' }}
+      {{ 'pass' if (t == 'new') else '' }}
 
 condition: []
 
 action:
   - variables:
       # --- INPUTS / FLATTEN ---
+      selected_cameras_input: !input camera
       input_append: !input append
       input_dashboard: !input dashboard
       input_expand: !input expand
@@ -356,6 +354,12 @@ action:
       ha_internal_url: "{{ state_attr('homeassistant', 'internal_url') | default('', true) | trim }}"
       input_labels: !input labels
       labels: "{{ (input_labels | default([], true) | list) | map('lower') | list }}"
+      camera_slugs_vars: >-
+        {{ (selected_cameras_input | default([], true) | list)
+           | map('replace','camera.','')
+           | map('lower')
+           | map('replace','-','_')
+           | list }}
       # --- QUALITY FILTERS ---
       min_score: !input min_score
       require_clip: !input require_clip
@@ -561,6 +565,9 @@ action:
 
   - condition: template
     value_template: "{{ (id | string) | length > 0 }}"
+
+  - condition: template
+    value_template: "{{ camera in (camera_slugs_vars or []) }}"
 
   - condition: template
     value_template: >
