@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2025-09-29
+
+### Changed
+- MQTT trigger no longer filters to `type: new`; event type is handled in actions. The first notification is now sent from the update loop once zone data is present, preventing missed zone matches on initial events.
+- The “View Summary” action is only included when an Event Summary Dashboard URL is configured; the input moved under LLMVision Tweaks.
+- iOS live view attachment falls back to the thumbnail when External Base URL is blank (ensures off‑LAN behavior).
+
+### Fixed
+- Cooldown formatting guarded to avoid `UndefinedError` when `days` is missing from the duration object.
+- Removed use of `camera_slugs` in the MQTT template; camera filtering is applied in action conditions (no more “camera_slugs undefined” warnings).
+- FCM nested data payload values are now strings (`ttl`, `priority`) to satisfy Firebase requirements.
+- Notification clickAction falls back to the snapshot when the clip is not yet ready.
+
 ## [0.2.0] - 2025-09-28
 
 ### Added

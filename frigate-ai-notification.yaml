@@ -314,10 +314,7 @@ trigger:
   - trigger: mqtt
     id: frigate-event
     topic: frigate/events
-    payload: pass
-    value_template: >-
-      {% set t = value_json.get('type','') %}
-      {{ 'pass' if (t == 'new') else '' }}
+    # Subscribe to all Frigate events; type is handled in actions
 
 condition: []
 
@@ -571,6 +568,10 @@ action:
 
   - condition: template
     value_template: "{{ camera in (camera_slugs_vars or []) }}"
+
+  # Skip the initial notification for new events; the update loop will send the first once zones are present
+  - condition: template
+    value_template: "{{ event_type != 'new' }}"
 
   - condition: template
     value_template: >
