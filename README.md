@@ -2,7 +2,7 @@
 ---
 <sup>Rewritten and improved version of the original by [@zacharyd3](https://github.com/zacharyd3/Frigate-Vision).</sup>
 
-Frigate AI Watch is a concise Home Assistant blueprint for smart, low‑noise camera notifications powered by Frigate + LLMVision: real‑time alerts with AI summaries, per‑camera cooldowns, multi‑device push, and reliable clip/Frigate links. It auto‑detects your HA internal/external URLs, lets you set the Frigate host/port, uses signed clip links for iOS live view, and includes a debug mode for safe testing.
+Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑noise camera notifications powered by Frigate + LLMVision: real‑time alerts with AI summaries, per‑camera cooldowns, multi‑device push, and reliable clip/Frigate links. It auto‑detects your HA internal/external URLs, lets you set the Frigate host/port, uses signed clip links for iOS live view, and includes a debug mode for safe testing.
 
 ---
 
@@ -12,7 +12,7 @@ Frigate AI Watch is a concise Home Assistant blueprint for smart, low‑noise ca
 
 ---
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/sam2kb)
-#### 💡 What Frigate AI Watch Does
+#### 💡 What Frigate AI Notification Does
 
 * **🚨 Listens for new Frigate detection events** from any camera you choose using MQTT
 * **🧠 Integrates with LLMVision** to enrich notifications with event summaries

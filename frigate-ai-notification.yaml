@@ -1,5 +1,5 @@
 blueprint:
-  name: Frigate Home Assistant AI Notification Blueprint
+  name: Frigate AI Notification Blueprint
   description: >
     Sends notifications for Frigate events, with optional LLM clip analysis, Android/iOS
     support, *zone include/exclude filtering* (entered/current/either), and extended logic
