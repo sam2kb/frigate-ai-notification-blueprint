@@ -468,8 +468,11 @@ action:
         {{ n ~ (' Camera' if input_append else '') }}
 
       cooldown: >-
-        {{ '%02d:%02d:%02d' | format(input_cooldown.hours + (input_cooldown.days * 24),
-                                      input_cooldown.minutes, input_cooldown.seconds) }}
+        {% set d = input_cooldown %}
+        {% set h = (d.hours | default(0)) + ((d.days | default(0)) * 24) %}
+        {% set m = d.minutes | default(0) %}
+        {% set s = d.seconds | default(0) %}
+        {{ '%02d:%02d:%02d' | format(h, m, s) }}
 
       # URL derivation
       base_url: >-

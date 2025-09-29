@@ -18,7 +18,7 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 * 🧠 Integrates with LLMVision (optional) to enrich notifications with event summaries
 * 🧭 Zone filtering with wildcards, include/exclude modes, match by entered/current/either zones
 * 🕒 Enforces per‑camera cooldowns so you’re not spammed when a squirrel does laps in your yard
-* 📱 Pushes mobile notifications with custom text, camera names, and optional sublabels (e.g., who or what was recognized)
+* 📱 Mobile notifications with custom text, camera names, and optional sublabels - who or what was recognized
 * 🌐 Auto-detects your HA URLs for clip links and Frigate shortcuts, with overrides when you need them
 * 🔐 iOS live view uses signed clip URLs when enabled
 * 📉 Reduced noise for stationary objects; update notifications only fire on new snapshots or sublabel changes
