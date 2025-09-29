@@ -8,24 +8,21 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fmain%2Ffrigate-ai-notification.yaml)
 
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/sam2kb)
-
 ---
 
 #### 💡 What Frigate AI Notification Does
 
-* **🚨 Listens for new Frigate detection events** from any camera you choose using MQTT
-* **🎛️ Multiple notification devices**
-* **📹 Multiple cameras in one automation**
-* **🧠 Integrates with LLMVision (optional)** to enrich notifications with event summaries
-* **🧭 Zone filtering with wildcards** include/exclude modes, match by entered/current/either zones, and any/all logic
-* **🕒 Enforces per‑camera cooldowns** so you’re not spammed when a squirrel does laps in your yard
-* **📱 Pushes mobile notifications** with custom text, camera names, and optional sublabels (e.g., who or what was recognized)
-* **🌐 Auto-detects your Home Assistant URLs** for clip links and Frigate shortcuts, with overrides when you need them
-* **🔐 iOS live view** uses signed clip URLs when enabled
-* **🔗 Resilient URL handling** with derived `clip_url`, `clip_url_signed`, `snapshot_url`, `thumbnail_url`, `thumbnail_android_url`, and `frigate_review_url`
-* **📉 Reduced noise**: for stationary objects, update notifications only fire on new snapshots or sublabel changes
-* **🐛 Debug mode** lets you preview all variables and logic without sending notifications
+* 🚨 Listens for new Frigate detection events from any camera you choose using MQTT
+* 🎛️ Multiple notification devices
+* 📹 Multiple cameras in one automation
+* 🧠 Integrates with LLMVision (optional) to enrich notifications with event summaries
+* 🧭 Zone filtering with wildcards, include/exclude modes, match by entered/current/either zones
+* 🕒 Enforces per‑camera cooldowns so you’re not spammed when a squirrel does laps in your yard
+* 📱 Pushes mobile notifications with custom text, camera names, and optional sublabels (e.g., who or what was recognized)
+* 🌐 Auto-detects your HA URLs for clip links and Frigate shortcuts, with overrides when you need them
+* 🔐 iOS live view uses signed clip URLs when enabled
+* 📉 Reduced noise for stationary objects; update notifications only fire on new snapshots or sublabel changes
+* 🐛 Debug mode lets you preview all variables and logic without sending notifications
 
 ---
 
