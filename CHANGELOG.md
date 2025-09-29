@@ -5,27 +5,31 @@ All notable changes to this project will be documented in this file.
 ## [0.2.0] - 2025-09-28
 
 ### Added
-- Advanced options to configure Frigate UI endpoints:
+- Zone-based filtering: New inputs to precisely control zone matching and behavior:
+  - Zones to Notify On (`zones`): Comma-separated list of Frigate zones (blank = ALL).
+  - Zone Filter Mode (`zone_filter_mode`): `include` (only notify on listed zones) or `exclude` (ignore listed zones).
+  - Zone Match Type (`zone_match_type`): Match by `entered`, `current`, or `either` set of zones.
+  - Zone Logic (`zone_logic`): When mode is `include`, require `any` or `all` of the listed zones to match.
+  - Filtering applies to initial notifications, update notifications, and LLMVision analysis.
+- Advanced Frigate UI endpoint options:
   - Frigate Instance URL (`frigate_url`)
   - Frigate UI Port (`frigate_port`)
-- Auto-detection of Home Assistant URLs when inputs are left blank:
-  - Uses `state_attr('homeassistant', 'external_url'|'internal_url')` as fallbacks.
-- Zone-based filtering: new "Zones to Notify On" input (comma-separated or blank for ALL) to restrict notifications to specific Frigate zones. Applies to initial notifications, update notifications, and LLMVision analysis.
-- Case-insensitive matching against Frigate `entered_zones`.
+- Auto-detection of Home Assistant URLs when inputs are blank:
+  - Falls back to `state_attr('homeassistant', 'external_url'|'internal_url')`.
+- Home Assistant version guard: Blueprint declares `homeassistant.min_version: 2024.6.0`.
 
 ### Changed
 - Replaced hardcoded `:8123` links with derived, resilient URLs:
-  - Introduced `clip_url`, `clip_url_signed`, `snapshot_url`, `thumbnail_url`, `thumbnail_android_url`, and `frigate_review_url` helper variables.
-  - `frigate_review_url` now derives from the configured Frigate URL or local/internal HA URL and optional port.
-- Default `base_url` and `local_url` inputs are now empty strings and auto-resolve from HA config.
+  - Introduced helper vars: `clip_url`, `clip_url_signed`, `snapshot_url`, `thumbnail_url`, `thumbnail_android_url`, `frigate_review_url`.
+  - `frigate_review_url` is built from `frigate_url` or HA local/external URL with optional port.
+- `base_url` / `local_url` defaults are now empty strings and auto-resolve from HA config.
 - iOS live view now uses the signed clip URL when enabled.
 
 ### Fixed
-- YAML structure issues in the variables block (indentation), ensuring the blueprint parses correctly.
-- `wait_for_trigger` value template now handles both `after` and `before` payloads safely.
-- URL composition sanitizes trailing slashes and strips any existing port before applying the configured Frigate port.
-- Fix: Moved `ios_live_view` from a grouped input to a top‑level input to prevent “Message malformed: Missing input ios_live_view” in some HA setups and during updates.
- - Mobile app notify service slugification now mirrors HA behavior (non‑alphanumeric → `_`, collapse duplicates, trim edges) to handle names with apostrophes and punctuation.
+- `wait_for_trigger` value template now safely handles events with only `before` or `after` data.
+- URL building sanitizes trailing slashes and removes any existing port before applying `frigate_port`.
+- Mobile app notify service slugification now uses HA’s native rules, handling apostrophes/punctuation (e.g., “Bob’s” → `bob_s_...`).
+- Reduced update spam from stationary objects by only notifying on new snapshots or sublabel changes when objects are motionless.
 
 ---
 

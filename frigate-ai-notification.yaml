@@ -2,8 +2,9 @@ blueprint:
   name: Frigate Home Assistant AI Notification Blueprint
   description: >
     Sends notifications for Frigate events, with optional LLM clip analysis, Android/iOS
-    support, zones filtering, and extended logic for loitering or sublabel changes.
-    Supports notification cooldown, custom icons, click actions, and dynamic message formatting.
+    support, *zone include/exclude filtering* (entered/current/either), and extended logic
+    for loitering or sublabel changes. Supports notification cooldown, custom icons,
+    click actions, and dynamic message formatting.
   domain: automation
   homeassistant:
     min_version: 2024.6.0
@@ -29,16 +30,47 @@ blueprint:
           custom_value: false
 
     zones:
-      name: Zones to Notify On
+      name: Zones (comma-separated)
       description: >
-        Comma-separated list of Frigate zone names. Leave empty to match all zones. Example: driveway, porch
+        Comma-separated list of Frigate zone names. Example: driveway, porch.
+        Leave empty to match all zones.
       default: ''
       selector:
         text: {}
 
+    zone_filter_mode:
+      name: Zone Filter Mode
+      description: Include = notify only when event matches the listed zones. Exclude = notify when event avoids the listed zones.
+      default: include
+      selector:
+        select:
+          mode: dropdown
+          options: [include, exclude]
+
+    zone_match_type:
+      name: Zone Match Type
+      description: Which zone field to check from Frigate.
+      default: entered
+      selector:
+        select:
+          mode: dropdown
+          options:
+            - entered      # only after.entered_zones (crossings)
+            - current      # only after.current_zones (currently inside)
+            - either       # union of entered+current
+
+    zone_logic:
+      name: Zone Logic (when Mode = include)
+      description: 'any: intersects at least one listed zone; all: must be in all listed zones'
+      default: any
+      selector:
+        select:
+          mode: dropdown
+          options: [any, all]
+
     helper:
       name: Helper
-      description: Input Boolean helper used for multi-camera logic.
+      description: Input Boolean helper used for multi-camera / LLM gating.
       selector:
         entity:
           domain: [input_boolean]
@@ -53,7 +85,7 @@ blueprint:
 
     notify_device:
       name: Mobile Device
-      description: Select the phone or tablet (with the Home Assistant app) to receive the notification.
+      description: Select phone/tablet (Home Assistant Companion app) to receive the notification.
       selector:
         device:
           integration: mobile_app
@@ -73,14 +105,14 @@ blueprint:
       collapsed: true
       input:
         append:
-          name: Append Camera
+          name: Append "Camera"
           description: Add the word "Camera" to the end of the camera name (e.g., "Back Yard" → "Back Yard Camera").
           default: false
           selector: { boolean: {} }
 
         expand:
-          name: Expand Cam
-          description: Replace "Cam" with "Camera" in the camera name (e.g., "Back Yard Cam" → "Back Yard Camera").
+          name: Expand "Cam" → "Camera"
+          description: Replace "Cam" with "Camera" in the camera name.
           default: false
           selector: { boolean: {} }
 
@@ -110,7 +142,7 @@ blueprint:
 
         expose_images:
           name: Expose Images
-          description: Save analyzed frames to `/www/llmvision` for use in notifications. File paths will be included in the LLM response.
+          description: Save analyzed frames to `/www/llmvision` for notifications. File paths will be included in the LLM response.
           default: true
           selector: { boolean: {} }
 
@@ -257,7 +289,7 @@ condition: []
 
 action:
   - variables:
-      # Inputs (flatten nested groups)
+      # --- INPUTS / FLATTEN ---
       input_append: !input append
       input_dashboard: !input dashboard
       input_expand: !input expand
@@ -287,10 +319,50 @@ action:
       ha_internal_url: "{{ state_attr('homeassistant', 'internal_url') | default('', true) | trim }}"
       input_labels: !input labels
       labels: "{{ (input_labels | default([], true) | list) | map('lower') | list }}"
+
+      # --- ZONE FILTERS ---
       input_zones: !input zones
+      input_zone_filter_mode: !input zone_filter_mode
+      input_zone_match_type: !input zone_match_type
+      input_zone_logic: !input zone_logic
+
       zones_filter: >-
         {% set z = (input_zones | default('', true) | string) %}
         {{ z.split(',') | map('trim') | select('ne','') | map('lower') | list }}
+
+      # Grab both entered_zones and current_zones from the NEW event
+      event_zones_entered: >-
+        {{ (trigger.payload_json['after'].get('entered_zones', []) or []) | map('lower') | list }}
+      event_zones_current: >-
+        {{ (trigger.payload_json['after'].get('current_zones', []) or []) | map('lower') | list }}
+      event_zones_checked: >-
+        {% set t = (input_zone_match_type | lower) %}
+        {% if t == 'entered' %}
+          {{ event_zones_entered }}
+        {% elif t == 'current' %}
+          {{ event_zones_current }}
+        {% else %}
+          {{ (event_zones_entered + event_zones_current) | unique | list }}
+        {% endif %}
+
+      zone_match: >-
+        {% set filter = zones_filter %}
+        {% set mode = (input_zone_filter_mode | lower) %}
+        {% set logic = (input_zone_logic | lower) %}
+        {% set Z = event_zones_checked %}
+        {% if not filter|length %}
+          true
+        {% else %}
+          {% if mode == 'exclude' %}
+            {{ (Z | select('in', filter) | list | length) == 0 }}
+          {% else %}
+            {% if logic == 'all' %}
+              {{ (filter | reject('in', Z) | list | length) == 0 }}
+            {% else %}
+              {{ (Z | select('in', filter) | list | length) > 0 }}
+            {% endif %}
+          {% endif %}
+        {% endif %}
 
       object: "{{ trigger.payload_json['after']['label'] }}"
       label: "{{ object | title }}"
@@ -388,13 +460,6 @@ action:
       update_thumbnail: true
       alert_once: true
 
-      # Initial event zones + filter result
-      event_zones: >-
-        {{ (trigger.payload_json['after'].get('entered_zones', []) or []) | map('lower') | list }}
-      zone_match: >-
-        {% set filter = zones_filter %}
-        {{ (not filter|length) or ((event_zones | select('in', filter) | list | length) > 0) }}
-
   - condition: template
     value_template: "{{ not labels|length or object in labels }}"
 
@@ -434,7 +499,7 @@ action:
                   title: Open Frigate
                   uri: "{{ frigate_review_url }}"
 
-  # UPDATE LOOP — notify on new snapshot or sublabel change (and passes zone filter)
+  # UPDATE LOOP — notify on new snapshot or sublabel change (respect zone filter)
   - repeat:
       sequence:
         - wait_for_trigger:
@@ -466,13 +531,39 @@ action:
               {% endif %}
             sub_label_changed: "{{ sub_label_text != (event_before.get('sub_label') or '') }}"
             entered_zones_changed: "{{ before_zones != entered_zones }}"
+
+            # --- UPDATE LOOP ZONE MATCH ---
+            current_zones_lower: "{{ (event_after.get('current_zones', []) | map('lower') | list) }}"
+            entered_zones_lower: "{{ (entered_zones | map('lower') | list) }}"
+            event_zones_checked_update: >-
+              {% set t = (input_zone_match_type | lower) %}
+              {% if t == 'entered' %}
+                {{ entered_zones_lower }}
+              {% elif t == 'current' %}
+                {{ current_zones_lower }}
+              {% else %}
+                {{ (entered_zones_lower + current_zones_lower) | unique | list }}
+              {% endif %}
+
             zone_match_update: >-
               {% set filter = zones_filter %}
+              {% set mode = (input_zone_filter_mode | lower) %}
+              {% set logic = (input_zone_logic | lower) %}
+              {% set Z = event_zones_checked_update %}
               {% if not filter|length %}
                 true
               {% else %}
-                {{ ( (entered_zones | map('lower') | select('in', filter) | list | length) > 0 ) }}
+                {% if mode == 'exclude' %}
+                  {{ (Z | select('in', filter) | list | length) == 0 }}
+                {% else %}
+                  {% if logic == 'all' %}
+                    {{ (filter | reject('in', Z) | list | length) == 0 }}
+                  {% else %}
+                    {{ (Z | select('in', filter) | list | length) > 0 }}
+                  {% endif %}
+                {% endif %}
               {% endif %}
+
             title: >-
               {% if sub_label_text %}
                 {{ sub_label_text }} detected on the {{ camera_name }}.
@@ -507,7 +598,7 @@ action:
 
         - choose:
             - conditions:
-                # Only notify if there is a material update AND it passes zone filter.
+                # Only notify if material update AND passes zone filter.
                 # Also ignore stationary objects unless there's a new snapshot or sublabel change.
                 - condition: template
                   value_template: "{{ (new_snapshot or sub_label_changed) and zone_match_update and (not is_stationary or sub_label_changed) }}"
