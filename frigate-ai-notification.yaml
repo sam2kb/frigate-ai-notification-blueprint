@@ -12,11 +12,11 @@ blueprint:
   input:
     camera:
       name: Frigate Camera Entity
-      description: The Frigate camera entity to monitor for events.
+      description: Select one or more Frigate cameras to monitor for events.
       selector:
         entity:
           domain: [camera]
-          multiple: false
+          multiple: true
 
     labels:
       name: Labels to Notify On
@@ -278,16 +278,20 @@ blueprint:
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
 
 trigger_variables:
-  input_camera: !input camera
-  camera: "{{ input_camera | replace('camera.', '') }}"
+  input_cameras: !input camera
+  camera_slugs: >-
+    {{ (input_cameras | default([], true) | list)
+       | map('replace','camera.','')
+       | map('lower')
+       | map('replace','-','_')
+       | list }}
 
 trigger:
   - trigger: mqtt
     id: frigate-event
     topic: frigate/events
-    # Only fire "new" events for this camera
-    payload: "{{ camera }}/new"
-    value_template: "{{ value_json['after']['camera'] | lower | replace('-','_') }}/{{ value_json['type'] }}"
+    value_template: "{{ value_json['type'] }}"
+    payload: "new"
 
 condition: []
 
@@ -324,6 +328,14 @@ action:
       input_labels: !input labels
       labels: "{{ (input_labels | default([], true) | list) | map('lower') | list }}"
 
+      # --- EVENT CAMERA / TYPE ---
+      event_type: "{{ trigger.payload_json.get('type') | default('') }}"
+      event_camera_raw: >-
+        {{ (trigger.payload_json.get('after') or {}).get('camera')
+            or (trigger.payload_json.get('before') or {}).get('camera')
+            or '' }}
+      camera: "{{ (event_camera_raw | string) | lower | replace('-','_') }}"
+
       # --- ZONE FILTERS ---
       input_zones: !input zones
       input_zone_filter_mode: !input zone_filter_mode
@@ -334,11 +346,11 @@ action:
         {% set z = (input_zones | default('', true) | string) %}
         {{ z.split(',') | map('trim') | select('ne','') | map('lower') | list }}
 
-      # Grab both entered_zones and current_zones from the NEW event
+      # Grab both entered_zones and current_zones safely (works for non-NEW events too)
       event_zones_entered: >-
-        {{ (trigger.payload_json['after'].get('entered_zones', []) or []) | map('lower') | list }}
+        {{ (((trigger.payload_json.get('after') or {}).get('entered_zones', []) or []) | list) | map('lower') | list }}
       event_zones_current: >-
-        {{ (trigger.payload_json['after'].get('current_zones', []) or []) | map('lower') | list }}
+        {{ (((trigger.payload_json.get('after') or {}).get('current_zones', []) or []) | list) | map('lower') | list }}
       event_zones_checked: >-
         {% set t = (input_zone_match_type | lower) %}
         {% if t == 'entered' %}
@@ -398,8 +410,19 @@ action:
           {% endif %}
         {% endif %}
 
-      object: "{{ trigger.payload_json['after']['label'] }}"
+      object: "{{ ((trigger.payload_json.get('after') or {}).get('label') | default('')) }}"
       label: "{{ object | title }}"
+      sub_label: "{{ (trigger.payload_json.get('after') or {}).get('sub_label') }}"
+      sub_label_text: >-
+        {% set s = (trigger.payload_json.get('after') or {}) %}
+        {% set sl = s.get('sub_label') %}
+        {% if sl is string %}
+          {{ sl }}
+        {% elif sl is sequence and not (sl is string) %}
+          {{ sl | join(', ') }}
+        {% else %}
+          {{ '' }}
+        {% endif %}
       raw_device: !input notify_device
 
       camera_name: >-
@@ -429,7 +452,7 @@ action:
       title: "{{ base_title }}"
       message: "{{ base_message }}"
       fps: "{{ states('sensor.' + camera + '_camera_fps') | int(5) }}"
-      id: "{{ trigger.payload_json['after']['id'] }}"
+      id: "{{ ((trigger.payload_json.get('after') or {}).get('id')) or ((trigger.payload_json.get('before') or {}).get('id')) }}"
 
       icon: >-
         mdi:{% if label == 'Person' %}account-outline{% elif label == 'Dog' %}dog{% elif label == 'Cat' %}cat{% elif label == 'Car' %}car{% else %}home-assistant{% endif %}
@@ -495,7 +518,13 @@ action:
       alert_once: true
 
   - condition: template
+    value_template: "{{ camera in camera_slugs }}"
+
+  - condition: template
     value_template: "{{ not labels|length or object in labels }}"
+
+  - condition: template
+    value_template: "{{ (id | string) | length > 0 }}"
 
   - condition: template
     value_template: "{{ zone_match }}"
@@ -806,5 +835,5 @@ action:
     default:
       - delay: "{{ input_cooldown }}"
 
-mode: queued
-max: 5
+mode: parallel
+max: 25

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
   - Zone Match Type (`zone_match_type`): Match by `entered`, `current`, or `either` set of zones.
   - Zone Logic (`zone_logic`): When mode is `include`, require `any` or `all` of the listed zones to match.
   - Filtering applies to initial notifications, update notifications, and LLMVision analysis.
+- Multi-camera input: Select multiple Frigate camera entities; events are filtered to the selected cameras.
 - Advanced Frigate UI endpoint options:
   - Frigate Instance URL (`frigate_url`)
   - Frigate UI Port (`frigate_port`)
@@ -20,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Home Assistant version guard: Blueprint declares `homeassistant.min_version: 2024.6.0`.
 
 ### Changed
+- Automation mode switched to `parallel` with `max: 25` so multiple events can process concurrently.
 - Replaced hardcoded `:8123` links with derived, resilient URLs:
   - Introduced helper vars: `clip_url`, `clip_url_signed`, `snapshot_url`, `thumbnail_url`, `thumbnail_android_url`, `frigate_review_url`.
   - `frigate_review_url` is built from `frigate_url` or HA local/external URL with optional port.

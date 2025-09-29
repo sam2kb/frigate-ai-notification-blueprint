@@ -16,11 +16,12 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 
 * **🚨 Listens for new Frigate detection events** from any camera you choose using MQTT
 * **🧠 Integrates with LLMVision** to enrich notifications with event summaries
-* **🕒 Enforces per-camera cooldowns** so you’re not spammed when a squirrel does laps in your yard
+* **🕒 Enforces per‑camera cooldowns** so you’re not spammed when a squirrel does laps in your yard
 * **📱 Pushes mobile notifications** with custom text, camera names, and optional sublabels (e.g., who or what was recognized)
 * **🧩 Uses input helpers** so you can easily reuse this blueprint across cameras without editing YAML
 * **🌐 Auto-detects your Home Assistant URLs** for clip links and Frigate shortcuts, with overrides for the Frigate host and port when you need them
-* **🎛️ Multiple notification devices** now available
+* **🎛️ Multiple notification devices**
+* **📹 Multiple cameras in one automation**
 * **🐛 Debug mode** lets you preview all variables and logic without sending notifications
 * **🧭 Zone filtering controls** include/exclude modes, match by entered/current/either zones, and any/all logic — applied to initial, update, and LLMVision steps
 * **🔐 iOS live view** uses signed clip URLs when enabled
@@ -29,11 +30,11 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 
 ---
 
-### 🎯 Zone Filters
+### 🎯 Zone Filters with wildcards
 
 Precisely control when notifications are sent based on Frigate zones:
 
-- Zones to Notify On (`zones`): comma‑separated list like `driveway` or `porch, sidewalk` (blank = all zones)
+- Zones to Notify On (`zones`): comma‑separated list like `driveway` or `porch, sidewalk` (blank = all zones). Supports wildcards `*` and `?` (full‑name match). Examples: `*_near`, `front_*`, `zone_?`.
 - Zone Filter Mode (`zone_filter_mode`): `include` (only notify on listed zones) or `exclude` (ignore listed zones)
 - Zone Match Type (`zone_match_type`): match by `entered`, `current`, or `either` zone lists
 - Zone Logic (`zone_logic`): when mode is `include`, require `any` or `all` of the listed zones to match
@@ -48,6 +49,8 @@ Matching is case‑insensitive.
 Examples:
 - `driveway` → notify only when the event intersects the Driveway zone
 - `porch, sidewalk` with mode `include` and logic `any` → notify when either zone matches
+- `*_far` with mode `exclude` → suppress notifications in any zone ending with `_far`
+- `front_* , *_near` with mode `include` and logic `all` → requires a zone matching each pattern (a single `front_near` zone satisfies both)
 
 ---
 
@@ -74,8 +77,13 @@ Examples:
 - `id` → Frigate event ID
 - `icon` → MDI icon selected based on detected label
 - `base_url` / `local_url` → Resolved Home Assistant base URLs (auto from config if blank)
-- `event_zones` → Zones reported by the event (lowercased)
+- `event_zones_entered` / `event_zones_current` → Zones reported by the event (lowercased)
 - `zone_match` → True/false indicating if the event passes the zone filter
+
+### 🧰 Multi‑camera usage notes
+- Select multiple camera entities in the Camera input; the automation subscribes to all Frigate events via MQTT and filters to your selected camera IDs.
+- The event must be of type `new` to trigger notifications; updates are handled by an internal loop per event.
+- Execution mode is `parallel` (max 25) so multiple events/cameras can process concurrently.
 
 ---
 
