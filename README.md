@@ -90,6 +90,15 @@ Optional:
 
 ---
 
+### 🎚️ Signal Quality Filters (optional)
+Reduce notification noise by enabling these guardrails for new events:
+
+- Minimum Detection Score (`min_score`, default 0.6)
+- Require Clip Ready (`require_clip`): only notify when the event has `has_clip=true`
+- Ignore Likely False Positives (`require_not_false_positive`, default true)
+
+---
+
 ## Changelog
 
 See the full change history in [CHANGELOG.md](./CHANGELOG.md).

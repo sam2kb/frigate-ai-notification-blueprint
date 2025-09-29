@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
   - Filtering applies to initial notifications, update notifications, and LLMVision analysis.
 - Multi-camera input: Select multiple Frigate camera entities; events are filtered to the selected cameras.
  - LLMVision integration is fully optional; leave Provider blank to disable.
+ - Signal Quality Filters:
+   - `min_score` (default 0.6)
+   - `require_clip` (notify only when `has_clip=true`)
+   - `require_not_false_positive` (default true)
 - Advanced Frigate UI endpoint options:
   - Frigate Instance URL (`frigate_url`)
   - Frigate UI Port (`frigate_port`)
