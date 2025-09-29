@@ -33,7 +33,7 @@ blueprint:
       name: Zones (comma-separated)
       description: >
         Comma-separated list of Frigate zone names. Example: driveway, porch.
-        Leave empty to match all zones.
+        Supports wildcards (* and ?), e.g. *_near to match all "..._near" zones. Leave empty to match all zones.
       default: ''
       selector:
         text: {}
@@ -350,20 +350,50 @@ action:
         {% endif %}
 
       zone_match: >-
-        {% set filter = zones_filter %}
+        {% set patterns = zones_filter %}
         {% set mode = (input_zone_filter_mode | lower) %}
         {% set logic = (input_zone_logic | lower) %}
         {% set Z = event_zones_checked %}
-        {% if not filter|length %}
+        {% if not patterns|length %}
           true
         {% else %}
+          {# Build a helper to test if any zone matches any pattern (supports * and ?) #}
+          {% set matches = [] %}
+          {% for z in Z %}
+            {% set z0 = z | lower %}
+            {% set hit = false %}
+            {% for p in patterns %}
+              {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
+              {% if z0 | regex_match(rx, ignorecase=true) %}
+                {% set hit = true %}
+              {% endif %}
+            {% endfor %}
+            {% if hit %}
+              {% set matches = matches + [z0] %}
+            {% endif %}
+          {% endfor %}
+
           {% if mode == 'exclude' %}
-            {{ (Z | select('in', filter) | list | length) == 0 }}
+            {{ (matches | length) == 0 }}
           {% else %}
             {% if logic == 'all' %}
-              {{ (filter | reject('in', Z) | list | length) == 0 }}
+              {# every pattern must match at least one zone #}
+              {% set all_ok = true %}
+              {% for p in patterns %}
+                {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
+                {% set found = false %}
+                {% for z in Z %}
+                  {% if (z | lower) | regex_match(rx, ignorecase=true) %}
+                    {% set found = true %}
+                  {% endif %}
+                {% endfor %}
+                {% if not found %}
+                  {% set all_ok = false %}
+                {% endif %}
+              {% endfor %}
+              {{ all_ok }}
             {% else %}
-              {{ (Z | select('in', filter) | list | length) > 0 }}
+              {{ (matches | length) > 0 }}
             {% endif %}
           {% endif %}
         {% endif %}
@@ -550,20 +580,48 @@ action:
               {% endif %}
 
             zone_match_update: >-
-              {% set filter = zones_filter %}
+              {% set patterns = zones_filter %}
               {% set mode = (input_zone_filter_mode | lower) %}
               {% set logic = (input_zone_logic | lower) %}
               {% set Z = event_zones_checked_update %}
-              {% if not filter|length %}
+              {% if not patterns|length %}
                 true
               {% else %}
+                {% set matches = [] %}
+                {% for z in Z %}
+                  {% set z0 = z | lower %}
+                  {% set hit = false %}
+                  {% for p in patterns %}
+                    {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
+                    {% if z0 | regex_match(rx, ignorecase=true) %}
+                      {% set hit = true %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if hit %}
+                    {% set matches = matches + [z0] %}
+                  {% endif %}
+                {% endfor %}
+
                 {% if mode == 'exclude' %}
-                  {{ (Z | select('in', filter) | list | length) == 0 }}
+                  {{ (matches | length) == 0 }}
                 {% else %}
                   {% if logic == 'all' %}
-                    {{ (filter | reject('in', Z) | list | length) == 0 }}
+                    {% set all_ok = true %}
+                    {% for p in patterns %}
+                      {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
+                      {% set found = false %}
+                      {% for z in Z %}
+                        {% if (z | lower) | regex_match(rx, ignorecase=true) %}
+                          {% set found = true %}
+                        {% endif %}
+                      {% endfor %}
+                      {% if not found %}
+                        {% set all_ok = false %}
+                      {% endif %}
+                    {% endfor %}
+                    {{ all_ok }}
                   {% else %}
-                    {{ (Z | select('in', filter) | list | length) > 0 }}
+                    {{ (matches | length) > 0 }}
                   {% endif %}
                 {% endif %}
               {% endif %}
@@ -748,4 +806,5 @@ action:
     default:
       - delay: "{{ input_cooldown }}"
 
-mode: single
+mode: queued
+max: 5

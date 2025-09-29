@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Zone-based filtering: New inputs to precisely control zone matching and behavior:
   - Zones to Notify On (`zones`): Comma-separated list of Frigate zones (blank = ALL).
+    - Supports wildcards (* and ?), e.g., `*_near` to match all zones ending with `_near`.
   - Zone Filter Mode (`zone_filter_mode`): `include` (only notify on listed zones) or `exclude` (ignore listed zones).
   - Zone Match Type (`zone_match_type`): Match by `entered`, `current`, or `either` set of zones.
   - Zone Logic (`zone_logic`): When mode is `include`, require `any` or `all` of the listed zones to match.
@@ -26,6 +27,9 @@ All notable changes to this project will be documented in this file.
 - iOS live view now uses the signed clip URL when enabled.
 
 ### Fixed
+
+### Misc
+- Default cooldown set to 1 minute.
 - `wait_for_trigger` value template now safely handles events with only `before` or `after` data.
 - URL building sanitizes trailing slashes and removes any existing port before applying `frigate_port`.
 - Mobile app notify service slugification now uses HA’s native rules, handling apostrophes/punctuation (e.g., “Bob’s” → `bob_s_...`).
