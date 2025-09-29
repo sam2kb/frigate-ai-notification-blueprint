@@ -745,19 +745,12 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ (input_helper | default('', true) | string) | length > 0 }}"
+                  - condition: template
+                    value_template: "{{ is_state(input_helper, 'on') }}"
                 sequence:
-                  - if:
-                      - condition: state
-                        entity_id: !input helper
-                        state: "on"
-                    then:
-                      - wait_for_trigger:
-                          - platform: state
-                            entity_id: !input helper
-                            from: "on"
-                            to: "off"
-                        timeout: { hours: 0, minutes: 3, seconds: 0 }
-                        continue_on_timeout: false
+                  - wait_template: "{{ (input_helper | default('', true) | string) | length == 0 or is_state(input_helper, 'off') }}"
+                    timeout: { hours: 0, minutes: 3, seconds: 0 }
+                    continue_on_timeout: false
 
           - choose:
               - conditions:
@@ -765,7 +758,8 @@ action:
                     value_template: "{{ (input_helper | default('', true) | string) | length > 0 }}"
                 sequence:
                   - service: input_boolean.turn_on
-                    target: { entity_id: !input helper }
+                    data:
+                      entity_id: "{{ input_helper }}"
 
           - service: llmvision.video_analyzer
             alias: "LLM Vision: Analyze Frigate Clip"
@@ -798,7 +792,8 @@ action:
                     value_template: "{{ (input_helper | default('', true) | string) | length > 0 }}"
                 sequence:
                   - service: input_boolean.turn_off
-                    target: { entity_id: !input helper }
+                    data:
+                      entity_id: "{{ input_helper }}"
 
           - variables:
               title: >-
