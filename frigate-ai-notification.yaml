@@ -382,13 +382,13 @@ action:
         {% set configured = input_base_url | default('', true) | trim %}
         {% set fallback = ha_external_url or ha_internal_url %}
         {% set value = configured if configured else fallback %}
-        {{ (value or '') | trim | rstrip('/') }}
+        {{ (value or '') | trim | regex_replace('/+$', '') }}
 
       local_url: >-
         {% set configured = input_local_url | default('', true) | trim %}
         {% set fallback = ha_internal_url or ha_external_url %}
         {% set value = configured if configured else fallback %}
-        {{ (value or base_url) | trim | rstrip('/') }}
+        {{ (value or base_url) | trim | regex_replace('/+$', '') }}
 
       base_title: "{{ label }} detected"
       base_message: "A {{ label }} was detected on the {{ camera_name }}."
@@ -418,11 +418,11 @@ action:
       frigate_base_candidate: >-
         {% set configured = input_frigate_url | default('', true) | trim %}
         {% if configured %}
-          {{ configured | rstrip('/') }}
+          {{ configured | regex_replace('/+$', '') }}
         {% else %}
           {% set fallback = local_url or base_url %}
           {% if fallback %}
-            {{ fallback | rstrip('/') | regex_replace(':(\\d+)$', '') }}
+            {{ fallback | regex_replace('/+$', '') | regex_replace(':(\\d+)$', '') }}
           {% else %}
             {{ '' }}
           {% endif %}
