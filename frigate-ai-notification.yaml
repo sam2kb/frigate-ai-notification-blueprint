@@ -694,20 +694,13 @@ action:
             has_clip_became_true: "{{ (not has_clip_before) and has_clip_now }}"
             click_target_url_update: "{{ clip_url if has_clip_now else snapshot_url }}"
 
-            # --- UPDATE LOOP ZONE MATCH ---
+            # --- UPDATE LOOP ZONE MATCH (robust: union of before + after) ---
             current_zones_lower: "{{ (event_after.get('current_zones', []) | map('lower') | list) }}"
             current_zones_before_lower: "{{ (event_before.get('current_zones', []) | map('lower') | list) }}"
-            entered_zones_lower: "{{ (entered_zones | map('lower') | list) }}"
-            entered_zones_before_lower: "{{ (before_zones | map('lower') | list) }}"
-            event_zones_checked_update: >-
-              {% set t = (input_zone_match_type | lower) %}
-              {% if t == 'entered' %}
-                {{ entered_zones_lower }}
-              {% elif t == 'current' %}
-                {{ current_zones_lower }}
-              {% else %}
-                {{ (entered_zones_lower + current_zones_lower) | unique | list }}
-              {% endif %}
+            entered_zones_lower: "{{ (event_after.get('entered_zones', []) | map('lower') | list) }}"
+            entered_zones_before_lower: "{{ (event_before.get('entered_zones', []) | map('lower') | list) }}"
+
+            # Per match type, compute zones seen previously vs. now
             event_zones_checked_before: >-
               {% set t = (input_zone_match_type | lower) %}
               {% if t == 'entered' %}
@@ -717,7 +710,22 @@ action:
               {% else %}
                 {{ (entered_zones_before_lower + current_zones_before_lower) | unique | list }}
               {% endif %}
-            zones_checked_changed: "{{ event_zones_checked_before != event_zones_checked_update }}"
+
+            event_zones_checked_now: >-
+              {% set t = (input_zone_match_type | lower) %}
+              {% if t == 'entered' %}
+                {{ entered_zones_lower }}
+              {% elif t == 'current' %}
+                {{ current_zones_lower }}
+              {% else %}
+                {{ (entered_zones_lower + current_zones_lower) | unique | list }}
+              {% endif %}
+
+            # Did the checked zone list change across this update?
+            zones_checked_changed: "{{ event_zones_checked_before != event_zones_checked_now }}"
+
+            # Use a union of before+now when evaluating the filter (helps when zones appear only on one side)
+            event_zones_checked_update: "{{ (event_zones_checked_before + event_zones_checked_now) | unique | list }}"
 
             zone_match_update: >-
               {% set patterns = zones_filter %}
@@ -730,18 +738,13 @@ action:
                 {% set matches = [] %}
                 {% for z in Z %}
                   {% set z0 = z | lower %}
-                  {% set hit = false %}
                   {% for p in patterns %}
                     {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
                     {% if z0 | regex_match(rx, ignorecase=true) %}
-                      {% set hit = true %}
+                      {% set matches = matches + [z0] %}
                     {% endif %}
                   {% endfor %}
-                  {% if hit %}
-                    {% set matches = matches + [z0] %}
-                  {% endif %}
                 {% endfor %}
-
                 {% if mode == 'exclude' %}
                   {{ (matches | length) == 0 }}
                 {% else %}
@@ -755,9 +758,7 @@ action:
                           {% set found = true %}
                         {% endif %}
                       {% endfor %}
-                      {% if not found %}
-                        {% set all_ok = false %}
-                      {% endif %}
+                      {% if not found %}{% set all_ok = false %}{% endif %}
                     {% endfor %}
                     {{ all_ok }}
                   {% else %}
@@ -816,12 +817,13 @@ action:
                 # Also ignore stationary objects unless there's a new snapshot or sublabel change.
                 - condition: template
                   value_template: >-
-                    {{ (new_snapshot
+                    {{ zone_match_update and (
+                        new_snapshot
                         or sub_label_changed
                         or zones_checked_changed
-                        or has_clip_became_true)
-                      and zone_match_update
-                      and (not is_stationary or sub_label_changed or zones_checked_changed) }}
+                        or has_clip_became_true
+                        or (event.get('type') == 'end')
+                      ) }}
                 - condition: template
                   value_template: >
                     {% set a = event_after %}
