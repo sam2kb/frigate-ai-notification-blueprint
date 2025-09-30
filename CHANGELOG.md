@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Removed use of `camera_slugs` in the MQTT template; camera filtering is applied in action conditions (no more “camera_slugs undefined” warnings).
 - FCM nested data payload values are now strings (`ttl`, `priority`) to satisfy Firebase requirements.
 - Notification clickAction falls back to the snapshot when the clip is not yet ready.
+- Reliability: Removed pre-loop blockers so the update loop always starts on new events (even before zones populate).
 
 ## [0.2.0] - 2025-09-28
 
