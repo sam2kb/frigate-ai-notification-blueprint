@@ -686,18 +686,19 @@ action:
                 {{ '' }}
               {% endif %}
             sub_label_changed: "{{ sub_label_text != (event_before.get('sub_label') or '') }}"
-            entered_zones_changed: "{{ before_zones != entered_zones }}"
+            entered_zones_changed: "{{ entered_zones_before_lower != entered_zones_lower }}"
 
             # Update-loop: clip readiness and click target (fallback to snapshot)
-            has_clip_update: "{{ event_after.get('has_clip', false) }}"
             has_clip_before: "{{ event_before.get('has_clip', false) }}"
             has_clip_now: "{{ event_after.get('has_clip', false) }}"
             has_clip_became_true: "{{ (not has_clip_before) and has_clip_now }}"
-            click_target_url_update: "{{ clip_url if has_clip_update else snapshot_url }}"
+            click_target_url_update: "{{ clip_url if has_clip_now else snapshot_url }}"
 
             # --- UPDATE LOOP ZONE MATCH ---
             current_zones_lower: "{{ (event_after.get('current_zones', []) | map('lower') | list) }}"
+            current_zones_before_lower: "{{ (event_before.get('current_zones', []) | map('lower') | list) }}"
             entered_zones_lower: "{{ (entered_zones | map('lower') | list) }}"
+            entered_zones_before_lower: "{{ (before_zones | map('lower') | list) }}"
             event_zones_checked_update: >-
               {% set t = (input_zone_match_type | lower) %}
               {% if t == 'entered' %}
@@ -707,6 +708,16 @@ action:
               {% else %}
                 {{ (entered_zones_lower + current_zones_lower) | unique | list }}
               {% endif %}
+            event_zones_checked_before: >-
+              {% set t = (input_zone_match_type | lower) %}
+              {% if t == 'entered' %}
+                {{ entered_zones_before_lower }}
+              {% elif t == 'current' %}
+                {{ current_zones_before_lower }}
+              {% else %}
+                {{ (entered_zones_before_lower + current_zones_before_lower) | unique | list }}
+              {% endif %}
+            zones_checked_changed: "{{ event_zones_checked_before != event_zones_checked_update }}"
 
             zone_match_update: >-
               {% set patterns = zones_filter %}
@@ -792,7 +803,12 @@ action:
                           patterns={{ zones_filter }}
                           mode={{ input_zone_filter_mode }}
                           logic={{ input_zone_logic }}
-                        Zone match: {{ zone_match_update }}
+                        FLAGS:
+                          new_snapshot={{ new_snapshot }}
+                          sub_label_changed={{ sub_label_changed }}
+                          zones_checked_changed={{ zones_checked_changed }}
+                          has_clip_became_true={{ has_clip_became_true }}
+                          zone_match_update={{ zone_match_update }}
 
         - choose:
             - conditions:
@@ -800,9 +816,12 @@ action:
                 # Also ignore stationary objects unless there's a new snapshot or sublabel change.
                 - condition: template
                   value_template: >-
-                    {{ (new_snapshot or sub_label_changed or entered_zones_changed or has_clip_became_true)
+                    {{ (new_snapshot
+                        or sub_label_changed
+                        or zones_checked_changed
+                        or has_clip_became_true)
                       and zone_match_update
-                      and (not is_stationary or sub_label_changed or entered_zones_changed) }}
+                      and (not is_stationary or sub_label_changed or zones_checked_changed) }}
                 - condition: template
                   value_template: >
                     {% set a = event_after %}
