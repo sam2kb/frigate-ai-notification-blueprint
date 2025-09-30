@@ -50,7 +50,7 @@ blueprint:
     zone_match_type:
       name: Zone Match Type
       description: Which zone field to check from Frigate.
-      default: entered
+      default: either
       selector:
         select:
           mode: dropdown
@@ -785,6 +785,13 @@ action:
                         Is stationary now: {{ is_stationary }}
                         Sublabel changed: {{ sub_label_changed }}
                         Entered zones changed: {{ entered_zones_changed }}
+                        ZONES:
+                          entered={{ entered_zones_lower }}
+                          current={{ current_zones_lower }}
+                          checked={{ event_zones_checked_update }}
+                          patterns={{ zones_filter }}
+                          mode={{ input_zone_filter_mode }}
+                          logic={{ input_zone_logic }}
                         Zone match: {{ zone_match_update }}
 
         - choose:
