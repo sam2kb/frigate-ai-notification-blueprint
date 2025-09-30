@@ -314,7 +314,8 @@ trigger:
   - trigger: mqtt
     id: frigate-event
     topic: frigate/events
-    # Subscribe to all Frigate events; type is handled in actions
+    value_template: "{{ value_json['type'] }}"
+    payload: "new"
 
 condition: []
 
@@ -575,18 +576,17 @@ action:
   - condition: template
     value_template: "{{ camera in (camera_slugs_vars or []) }}"
 
-  - condition: template
-    value_template: >
-      {% set a = trigger.payload_json.get('after',{}) %}
-      {% set score_ok = (a.get('score', 1) | float(1)) >= (min_score | float(0)) %}
-      {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
-      {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
-      {{ score_ok and clip_ok and fp_ok }}
-
   - choose:
     - conditions:
         - condition: template
           value_template: "{{ zone_match }}"
+        - condition: template
+          value_template: >
+            {% set a = trigger.payload_json.get('after',{}) %}
+            {% set score_ok = (a.get('score', 1) | float(1)) >= (min_score | float(0)) %}
+            {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
+            {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
+            {{ score_ok and clip_ok and fp_ok }}
       sequence:
         - repeat:
             for_each: "{{ raw_device }}"
@@ -785,6 +785,13 @@ action:
                 # Also ignore stationary objects unless there's a new snapshot or sublabel change.
                 - condition: template
                   value_template: "{{ (new_snapshot or sub_label_changed) and zone_match_update and (not is_stationary or sub_label_changed) }}"
+                - condition: template
+                  value_template: >
+                    {% set a = event_after %}
+                    {% set score_ok = (a.get('score', 1) | float(1)) >= (min_score | float(0)) %}
+                    {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
+                    {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
+                    {{ score_ok and clip_ok and fp_ok }}
               sequence:
                 - repeat:
                     for_each: "{{ raw_device }}"
