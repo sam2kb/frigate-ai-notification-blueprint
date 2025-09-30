@@ -661,6 +661,8 @@ action:
               payload: "{{ id }}"
           timeout: "{{ cooldown_td }}"
           continue_on_timeout: true
+        
+        - delay: "00:00:02"  # This gives Frigate a beat to populate zones/clip flags before we evaluate.
 
         - variables:
             event: "{{ wait.trigger.payload_json if wait.trigger else {} }}"
@@ -668,7 +670,10 @@ action:
             event_after: "{{ event.get('after', {}) or {} }}"
             before_zones: "{{ event_before.get('entered_zones', []) or [] }}"
             entered_zones: "{{ event_after.get('entered_zones', []) or [] }}"
-            new_snapshot: "{{ update_thumbnail and (event_after.get('snapshot_time') != event_before.get('snapshot_time')) }}"
+            new_snapshot: >-
+              {% set aft = event_after.get('snapshot_time') or (event_after.get('snapshot',{}).get('frame_time')) %}
+              {% set bef = event_before.get('snapshot_time') or (event_before.get('snapshot',{}).get('frame_time')) %}
+              {{ update_thumbnail and (aft != bef) }}
             stationary_moved: "{{ (event_after.get('position_changes', 0) | int(0)) > (event_before.get('position_changes', 0) | int(0)) }}"
             is_stationary: "{{ event_after.get('stationary', event_after.get('motionless', False)) }}"
             sub_label: "{{ event_after.get('sub_label') }}"
@@ -685,6 +690,9 @@ action:
 
             # Update-loop: clip readiness and click target (fallback to snapshot)
             has_clip_update: "{{ event_after.get('has_clip', false) }}"
+            has_clip_before: "{{ event_before.get('has_clip', false) }}"
+            has_clip_now: "{{ event_after.get('has_clip', false) }}"
+            has_clip_became_true: "{{ (not has_clip_before) and has_clip_now }}"
             click_target_url_update: "{{ clip_url if has_clip_update else snapshot_url }}"
 
             # --- UPDATE LOOP ZONE MATCH ---
@@ -784,7 +792,10 @@ action:
                 # Only notify if material update AND passes zone filter.
                 # Also ignore stationary objects unless there's a new snapshot or sublabel change.
                 - condition: template
-                  value_template: "{{ (new_snapshot or sub_label_changed) and zone_match_update and (not is_stationary or sub_label_changed) }}"
+                  value_template: >-
+                    {{ (new_snapshot or sub_label_changed or entered_zones_changed or has_clip_became_true)
+                      and zone_match_update
+                      and (not is_stationary or sub_label_changed or entered_zones_changed) }}
                 - condition: template
                   value_template: >
                     {% set a = event_after %}
