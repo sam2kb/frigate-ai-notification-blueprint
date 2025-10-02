@@ -397,53 +397,45 @@ action:
         {% endif %}
 
       zone_match: >-
-        {% set patterns = zones_filter %}
-        {% set mode = (input_zone_filter_mode | lower) %}
-        {% set logic = (input_zone_logic | lower) %}
-        {% set Z = event_zones_checked %}
-        {% if not patterns|length %}
+        {%- set patterns = (zones_filter | map('trim') | map('lower') | list) -%}
+        {%- set mode = (input_zone_filter_mode | lower) -%}
+        {%- set logic = (input_zone_logic | lower) -%}
+        {%- set Z = (event_zones_checked | map('lower') | list) -%}
+        {%- if not patterns|length -%}
           true
-        {% else %}
-          {# Build a helper to test if any zone matches any pattern (supports * and ?) #}
-          {% set matches = [] %}
-          {% for z in Z %}
-            {% set z0 = z | lower %}
-            {% set hit = false %}
-            {% for p in patterns %}
-              {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
-              {% if z0 | regex_match(rx, ignorecase=true) %}
-                {% set hit = true %}
-              {% endif %}
-            {% endfor %}
-            {% if hit %}
-              {% set matches = matches + [z0] %}
-            {% endif %}
-          {% endfor %}
-
-          {% if mode == 'exclude' %}
-            {{ (matches | length) == 0 }}
-          {% else %}
-            {% if logic == 'all' %}
-              {# every pattern must match at least one zone #}
-              {% set all_ok = true %}
-              {% for p in patterns %}
-                {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
-                {% set found = false %}
-                {% for z in Z %}
-                  {% if (z | lower) | regex_match(rx, ignorecase=true) %}
-                    {% set found = true %}
-                  {% endif %}
-                {% endfor %}
-                {% if not found %}
-                  {% set all_ok = false %}
-                {% endif %}
-              {% endfor %}
-              {{ all_ok }}
-            {% else %}
-              {{ (matches | length) > 0 }}
-            {% endif %}
-          {% endif %}
-        {% endif %}
+        {%- else -%}
+          {%- set ns = namespace(matches=[]) -%}
+          {%- for z in Z -%}
+            {%- set hit = false -%}
+            {%- for p in patterns -%}
+              {%- set rx = '^' ~ (p
+                |regex_replace('\\.', '\\\\.')
+                |regex_replace('\\*', '.*')
+                |regex_replace('\\?', '.')) ~ '$' -%}
+              {%- if z | regex_match(rx, ignorecase=true) -%}{%- set hit = true -%}{%- endif -%}
+            {%- endfor -%}
+            {%- if hit -%}{%- set ns.matches = ns.matches + [z] -%}{%- endif -%}
+          {%- endfor -%}
+          {%- if mode == 'exclude' -%}
+            {{ (ns.matches | length) == 0 }}
+          {%- else -%}
+            {%- if logic == 'all' -%}
+              {%- set all_ok = namespace(v=true) -%}
+              {%- for p in patterns -%}
+                {%- set rx = '^' ~ (p
+                  |regex_replace('\\.', '\\\\.')
+                  |regex_replace('\\*', '.*')
+                  |regex_replace('\\?', '.')) ~ '$' -%}
+                {%- if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 -%}
+                  {%- set all_ok.v = false -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{ all_ok.v }}
+            {%- else -%}
+              {{ (ns.matches | length) > 0 }}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
 
       object: "{{ ((trigger.payload_json.get('after') or {}).get('label') | default('')) }}"
       label: "{{ object | title }}"
@@ -582,8 +574,9 @@ action:
           value_template: "{{ zone_match }}"
         - condition: template
           value_template: >
-            {% set a = trigger.payload_json.get('after',{}) %}
-            {% set score_ok = (a.get('score', 1) | float(1)) >= (min_score | float(0)) %}
+            {% set a = trigger.payload_json.get('after', {}) or {} %}
+            {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
+            {% set score_ok = best >= (min_score | float(0)) %}
             {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
             {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
             {{ score_ok and clip_ok and fp_ok }}
@@ -686,7 +679,6 @@ action:
                 {{ '' }}
               {% endif %}
             sub_label_changed: "{{ sub_label_text != (event_before.get('sub_label') or '') }}"
-            entered_zones_changed: "{{ entered_zones_before_lower != entered_zones_lower }}"
 
             # Update-loop: clip readiness and click target (fallback to snapshot)
             has_clip_before: "{{ event_before.get('has_clip', false) }}"
@@ -699,6 +691,7 @@ action:
             current_zones_before_lower: "{{ (event_before.get('current_zones', []) | map('lower') | list) }}"
             entered_zones_lower: "{{ (event_after.get('entered_zones', []) | map('lower') | list) }}"
             entered_zones_before_lower: "{{ (event_before.get('entered_zones', []) | map('lower') | list) }}"
+            entered_zones_changed: "{{ entered_zones_before_lower != entered_zones_lower }}"
 
             # Per match type, compute zones seen previously vs. now
             event_zones_checked_before: >-
@@ -728,44 +721,45 @@ action:
             event_zones_checked_update: "{{ (event_zones_checked_before + event_zones_checked_now) | unique | list }}"
 
             zone_match_update: >-
-              {% set patterns = zones_filter %}
-              {% set mode = (input_zone_filter_mode | lower) %}
-              {% set logic = (input_zone_logic | lower) %}
-              {% set Z = event_zones_checked_update %}
-              {% if not patterns|length %}
+              {%- set patterns = (zones_filter | map('trim') | map('lower') | list) -%}
+              {%- set mode = (input_zone_filter_mode | lower) -%}
+              {%- set logic = (input_zone_logic | lower) -%}
+              {%- set Z = (event_zones_checked_update | map('lower') | list) -%}
+              {%- if not patterns|length -%}
                 true
-              {% else %}
-                {% set matches = [] %}
-                {% for z in Z %}
-                  {% set z0 = z | lower %}
-                  {% for p in patterns %}
-                    {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
-                    {% if z0 | regex_match(rx, ignorecase=true) %}
-                      {% set matches = matches + [z0] %}
-                    {% endif %}
-                  {% endfor %}
-                {% endfor %}
-                {% if mode == 'exclude' %}
-                  {{ (matches | length) == 0 }}
-                {% else %}
-                  {% if logic == 'all' %}
-                    {% set all_ok = true %}
-                    {% for p in patterns %}
-                      {% set rx = '^' ~ (p | regex_replace('\\.', '\\\\.') | regex_replace('\\*', '.*') | regex_replace('\\?', '.')) ~ '$' %}
-                      {% set found = false %}
-                      {% for z in Z %}
-                        {% if (z | lower) | regex_match(rx, ignorecase=true) %}
-                          {% set found = true %}
-                        {% endif %}
-                      {% endfor %}
-                      {% if not found %}{% set all_ok = false %}{% endif %}
-                    {% endfor %}
-                    {{ all_ok }}
-                  {% else %}
-                    {{ (matches | length) > 0 }}
-                  {% endif %}
-                {% endif %}
-              {% endif %}
+              {%- else -%}
+                {%- set ns = namespace(matches=[]) -%}
+                {%- for z in Z -%}
+                  {%- set hit = false -%}
+                  {%- for p in patterns -%}
+                    {%- set rx = '^' ~ (p
+                      |regex_replace('\\.', '\\\\.')
+                      |regex_replace('\\*', '.*')
+                      |regex_replace('\\?', '.')) ~ '$' -%}
+                    {%- if z | regex_match(rx, ignorecase=true) -%}{%- set hit = true -%}{%- endif -%}
+                  {%- endfor -%}
+                  {%- if hit -%}{%- set ns.matches = ns.matches + [z] -%}{%- endif -%}
+                {%- endfor -%}
+                {%- if mode == 'exclude' -%}
+                  {{ (ns.matches | length) == 0 }}
+                {%- else -%}
+                  {%- if logic == 'all' -%}
+                    {%- set all_ok = namespace(v=true) -%}
+                    {%- for p in patterns -%}
+                      {%- set rx = '^' ~ (p
+                        |regex_replace('\\.', '\\\\.')
+                        |regex_replace('\\*', '.*')
+                        |regex_replace('\\?', '.')) ~ '$' -%}
+                      {%- if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 -%}
+                        {%- set all_ok.v = false -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {{ all_ok.v }}
+                  {%- else -%}
+                    {{ (ns.matches | length) > 0 }}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endif -%}
 
             title: >-
               {% if sub_label_text %}
@@ -826,8 +820,9 @@ action:
                       ) }}
                 - condition: template
                   value_template: >
-                    {% set a = event_after %}
-                    {% set score_ok = (a.get('score', 1) | float(1)) >= (min_score | float(0)) %}
+                    {% set a = event_after or {} %}
+                    {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
+                    {% set score_ok = best >= (min_score | float(0)) %}
                     {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
                     {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
                     {{ score_ok and clip_ok and fp_ok }}
