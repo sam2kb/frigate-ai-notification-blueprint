@@ -397,45 +397,47 @@ action:
         {% endif %}
 
       zone_match: >-
-        {%- set patterns = (zones_filter | map('trim') | map('lower') | list) -%}
-        {%- set mode = (input_zone_filter_mode | lower) -%}
-        {%- set logic = (input_zone_logic | lower) -%}
-        {%- set Z = (event_zones_checked | map('lower') | list) -%}
-        {%- if not patterns|length -%}
+        {% set P = (zones_filter | default([], true)) | map('lower') | list %}
+        {% set mode = (input_zone_filter_mode | lower) %}
+        {% set logic = (input_zone_logic | lower) %}
+        {% set Z = (event_zones_checked | default([], true)) | map('lower') | list %}
+        {% if not P|length %}
           true
-        {%- else -%}
-          {%- set ns = namespace(matches=[]) -%}
-          {%- for z in Z -%}
-            {%- set hit = false -%}
-            {%- for p in patterns -%}
-              {%- set rx = '^' ~ (p
-                |regex_replace('\\.', '\\\\.')
-                |regex_replace('\\*', '.*')
-                |regex_replace('\\?', '.')) ~ '$' -%}
-              {%- if z | regex_match(rx, ignorecase=true) -%}{%- set hit = true -%}{%- endif -%}
-            {%- endfor -%}
-            {%- if hit -%}{%- set ns.matches = ns.matches + [z] -%}{%- endif -%}
-          {%- endfor -%}
-          {%- if mode == 'exclude' -%}
-            {{ (ns.matches | length) == 0 }}
-          {%- else -%}
-            {%- if logic == 'all' -%}
-              {%- set all_ok = namespace(v=true) -%}
-              {%- for p in patterns -%}
-                {%- set rx = '^' ~ (p
-                  |regex_replace('\\.', '\\\\.')
-                  |regex_replace('\\*', '.*')
-                  |regex_replace('\\?', '.')) ~ '$' -%}
-                {%- if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 -%}
-                  {%- set all_ok.v = false -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {{ all_ok.v }}
-            {%- else -%}
-              {{ (ns.matches | length) > 0 }}
-            {%- endif -%}
-          {%- endif -%}
-        {%- endif -%}
+        {% else %}
+          {# build wildcard regexes safely #}
+          {% set RX = [] %}
+          {% for p in P %}
+            {% set r = '^' ~ (p
+                              | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1')
+                              | regex_replace('\\*','.*')
+                              | regex_replace('\\?','.')
+                              ) ~ '$' %}
+            {% set RX = RX + [r] %}
+          {% endfor %}
+
+          {% set any_hit = namespace(v=false) %}
+          {% for z in Z %}
+            {% for r in RX %}
+              {% if z | regex_match(r, ignorecase=true) %}
+                {% set any_hit.v = true %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+
+          {% if mode == 'exclude' %}
+            {{ not any_hit.v }}
+          {% elif logic == 'any' %}
+            {{ any_hit.v }}
+          {% else %}
+            {% set all_ok = namespace(v=true) %}
+            {% for r in RX %}
+              {% if (Z | select('regex_match', r, ignorecase=true) | list | length) == 0 %}
+                {% set all_ok.v = false %}
+              {% endif %}
+            {% endfor %}
+            {{ all_ok.v }}
+          {% endif %}
+        {% endif %}
 
       object: "{{ ((trigger.payload_json.get('after') or {}).get('label') | default('')) }}"
       label: "{{ object | title }}"
@@ -721,45 +723,46 @@ action:
             event_zones_checked_update: "{{ (event_zones_checked_before + event_zones_checked_now) | unique | list }}"
 
             zone_match_update: >-
-              {%- set patterns = (zones_filter | map('trim') | map('lower') | list) -%}
-              {%- set mode = (input_zone_filter_mode | lower) -%}
-              {%- set logic = (input_zone_logic | lower) -%}
-              {%- set Z = (event_zones_checked_update | map('lower') | list) -%}
-              {%- if not patterns|length -%}
+              {% set P = (zones_filter | default([], true)) | map('lower') | list %}
+              {% set mode = (input_zone_filter_mode | lower) %}
+              {% set logic = (input_zone_logic | lower) %}
+              {% set Z = (event_zones_checked_update | default([], true)) | map('lower') | list %}
+              {% if not P|length %}
                 true
-              {%- else -%}
-                {%- set ns = namespace(matches=[]) -%}
-                {%- for z in Z -%}
-                  {%- set hit = false -%}
-                  {%- for p in patterns -%}
-                    {%- set rx = '^' ~ (p
-                      |regex_replace('\\.', '\\\\.')
-                      |regex_replace('\\*', '.*')
-                      |regex_replace('\\?', '.')) ~ '$' -%}
-                    {%- if z | regex_match(rx, ignorecase=true) -%}{%- set hit = true -%}{%- endif -%}
-                  {%- endfor -%}
-                  {%- if hit -%}{%- set ns.matches = ns.matches + [z] -%}{%- endif -%}
-                {%- endfor -%}
-                {%- if mode == 'exclude' -%}
-                  {{ (ns.matches | length) == 0 }}
-                {%- else -%}
-                  {%- if logic == 'all' -%}
-                    {%- set all_ok = namespace(v=true) -%}
-                    {%- for p in patterns -%}
-                      {%- set rx = '^' ~ (p
-                        |regex_replace('\\.', '\\\\.')
-                        |regex_replace('\\*', '.*')
-                        |regex_replace('\\?', '.')) ~ '$' -%}
-                      {%- if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 -%}
-                        {%- set all_ok.v = false -%}
-                      {%- endif -%}
-                    {%- endfor -%}
-                    {{ all_ok.v }}
-                  {%- else -%}
-                    {{ (ns.matches | length) > 0 }}
-                  {%- endif -%}
-                {%- endif -%}
-              {%- endif -%}
+              {% else %}
+                {% set RX = [] %}
+                {% for p in P %}
+                  {% set r = '^' ~ (p
+                                    | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1')
+                                    | regex_replace('\\*','.*')
+                                    | regex_replace('\\?','.')
+                                    ) ~ '$' %}
+                  {% set RX = RX + [r] %}
+                {% endfor %}
+
+                {% set any_hit = namespace(v=false) %}
+                {% for z in Z %}
+                  {% for r in RX %}
+                    {% if z | regex_match(r, ignorecase=true) %}
+                      {% set any_hit.v = true %}
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+
+                {% if mode == 'exclude' %}
+                  {{ not any_hit.v }}
+                {% elif logic == 'any' %}
+                  {{ any_hit.v }}
+                {% else %}
+                  {% set all_ok = namespace(v=true) %}
+                  {% for r in RX %}
+                    {% if (Z | select('regex_match', r, ignorecase=true) | list | length) == 0 %}
+                      {% set all_ok.v = false %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ all_ok.v }}
+                {% endif %}
+              {% endif %}
 
             title: >-
               {% if sub_label_text %}
