@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Quality check now prefers the best of `top_score` or `score` when available.
 - iOS Live View setting lives under Notification Customization. When External Base URL is blank, iOS falls back to the thumbnail.
 - Cooldown: optional `input_datetime` helper provides cross-update throttling; default duration remains 1 minute. Timestamp is written once per notification (not per device).
+- Add more debug steps
 
 ## [0.2.0] - 2025-09-28
 

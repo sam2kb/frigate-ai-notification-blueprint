@@ -849,12 +849,10 @@ action:
                 # Also ignore stationary objects unless there's a new snapshot or sublabel change.
                 - condition: template
                   value_template: >-
-                    {{ zone_match_update and (
-                        sub_label_changed
-                        or zones_checked_changed
-                        or has_clip_became_true
-                        or (event.get('type') == 'end')
-                    ) }}
+                    {{ zone_match_update
+                      and (new_snapshot or sub_label_changed or zones_checked_changed or has_clip_became_true or (event.get('type') == 'end'))
+                      and (not is_stationary or new_snapshot or sub_label_changed or zones_checked_changed)
+                    }}
                 - condition: template
                   value_template: >-
                     {% set ent = (input_cooldown_datetime | default('', true) | string) %}
