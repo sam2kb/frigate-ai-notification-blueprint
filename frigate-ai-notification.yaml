@@ -68,17 +68,7 @@ blueprint:
           mode: dropdown
           options: [any, all]
 
-    helper:
-      name: Input Helper
-      description: >
-        Input helper used as a simple "busy" flag when multiple cameras or LLM analysis
-        are active. Open the picker → click **Create a new Toggle helper** → name it
-        "Frigate LLM Busy" → **Create**. No other setup required.
-      default: ''
-      selector:
-        entity:
-          domain: [input_boolean]
-          multiple: false
+    
 
     cooldown:
       name: Cooldown
@@ -150,6 +140,16 @@ blueprint:
       description: Tweak LLMVision settings and options
       collapsed: true
       input:
+        helper:
+          name: Input Helper
+          description: >
+            Optional toggle used as a simple "busy" flag when multiple cameras or LLM analysis are active.
+            Open the picker → click "Create a new Toggle helper" → name it "Frigate LLM Busy" → Create.
+          default: ''
+          selector:
+            entity:
+              domain: [input_boolean]
+              multiple: false
         dashboard:
           name: Event Summary Dashboard
           description: Optional dashboard URL opened by the "View Summary" action; leave blank to hide the button.
@@ -403,7 +403,8 @@ action:
         {% set Z = (event_zones_checked | default([], true)) | map('lower') | list %}
         {% if not P|length %}
           true
-        {% else %}
+        {% else %}
+
           {% set RX = P
             | map('regex_replace','\\.', '\\\\.')
             | map('regex_replace','\\*','.*')
@@ -662,8 +663,6 @@ action:
             before_zones: "{{ event_before.get('entered_zones', []) or [] }}"
             entered_zones: "{{ event_after.get('entered_zones', []) or [] }}"
             new_snapshot: >-
-              {% set aft = event_after.get('snapshot_time') or (event_after.get('snapshot',{}).get('frame_time')) %}
-              {% set bef = event_before.get('snapshot_time') or (event_before.get('snapshot',{}).get('frame_time')) %}
               {{ update_thumbnail and (aft != bef) }}
             stationary_moved: "{{ (event_after.get('position_changes', 0) | int(0)) > (event_before.get('position_changes', 0) | int(0)) }}"
             is_stationary: "{{ event_after.get('stationary', event_after.get('motionless', False)) }}"
@@ -808,12 +807,11 @@ action:
                 - condition: template
                   value_template: >-
                     {{ zone_match_update and (
-                        new_snapshot
-                        or sub_label_changed
+                        sub_label_changed
                         or zones_checked_changed
                         or has_clip_became_true
                         or (event.get('type') == 'end')
-                      ) }}
+                    ) }}
                 - condition: template
                   value_template: >
                     {% set a = event_after or {} %}
