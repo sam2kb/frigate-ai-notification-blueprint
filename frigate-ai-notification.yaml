@@ -41,8 +41,7 @@ blueprint:
     zones_exclude:
       name: Exclude Zones
       description: >
-        Zones that always suppress notifications. Supports * and ? wildcards
-        (e.g., porch_*). If an event matches both include and exclude, it is blocked.
+        Zones that always suppress notifications. If an event matches both include and exclude, it is BLOCKED.
       default: ''
       selector:
         text: {}
