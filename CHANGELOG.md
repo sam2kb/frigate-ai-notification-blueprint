@@ -4,18 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [0.2.1] - 2025-09-29
 
-### Changed
-- MQTT trigger no longer filters to `type: new`; event type is handled in actions. The first notification is now sent from the update loop once zone data is present, preventing missed zone matches on initial events.
-- The "View Summary" action is only included when an Event Summary Dashboard URL is configured; the input moved under LLMVision Tweaks.
-- iOS live view attachment falls back to the thumbnail when External Base URL is blank (ensures off‑LAN behavior).
-- Added a Cooldown Helper to throttle notifications across updates
-
-### Fixed
-- Cooldown formatting guarded to avoid `UndefinedError` and `Unsupported operand type(s)` errors.
-- Removed use of `camera_slugs` in the MQTT template; camera filtering is applied in action conditions (no more “camera_slugs undefined” warnings).
-- FCM nested data payload values are now strings (`ttl`, `priority`) to satisfy Firebase requirements.
-- Notification clickAction falls back to the snapshot when the clip is not yet ready.
-- Reliability: Removed pre-loop blockers so the update loop always starts on new events (even before zones populate).
+- MQTT trigger still filters `to type`: new. Event updates are consumed inside the update loop; the first push can be sent immediately (pre-loop) once zone match, cooldown, and quality checks pass. The update loop handles follow-ups (clip ready, zone/sub-label changes, and `end`).
+- Zone matching kept as include/exclude with wildcard support; internal matcher was hardened (proper escaping of `.`, `*`, `?` and optional `^…$` anchoring).
+- Quality check now prefers the best of `top_score` or `score` when available.
+- iOS Live View setting lives under Notification Customization. When External Base URL is blank, iOS falls back to the thumbnail.
+- Cooldown: optional `input_datetime` helper provides cross-update throttling; default duration remains 1 minute. Timestamp is written once per notification (not per device).
 
 ## [0.2.0] - 2025-09-28
 
@@ -49,7 +42,6 @@ All notable changes to this project will be documented in this file.
 - iOS live view now uses the signed clip URL when enabled.
 
 ### Misc
-- Default cooldown set to 1 minute.
 - Helper entity is optional and only used when LLM is enabled.
 - Fallback to snapshot when clip isn't ready yet
 - `wait_for_trigger` value template now safely handles events with only `before` or `after` data.
