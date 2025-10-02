@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - MQTT trigger no longer filters to `type: new`; event type is handled in actions. The first notification is now sent from the update loop once zone data is present, preventing missed zone matches on initial events.
-- The “View Summary” action is only included when an Event Summary Dashboard URL is configured; the input moved under LLMVision Tweaks.
+- The "View Summary" action is only included when an Event Summary Dashboard URL is configured; the input moved under LLMVision Tweaks.
 - iOS live view attachment falls back to the thumbnail when External Base URL is blank (ensures off‑LAN behavior).
+- Added a Cooldown Helper to throttle notifications across updates
 
 ### Fixed
 - Cooldown formatting guarded to avoid `UndefinedError` and `Unsupported operand type(s)` errors.

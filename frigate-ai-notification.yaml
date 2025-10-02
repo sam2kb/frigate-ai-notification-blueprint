@@ -78,6 +78,15 @@ blueprint:
         duration:
           enable_day: true
 
+    cooldown_timestamp:
+      name: Cooldown Helper (optional)
+      description: Recommended datetime helper used to throttle notifications across updates. Open the picker → select "Create" → name it "Frigate Notification Cooldown" → select "Date and Time" → Create.
+      default: ''
+      selector:
+        entity:
+          domain: [input_datetime]
+          multiple: false
+
     notify_device:
       name: Mobile Devices
       description: Select devices (Home Assistant Companion app) to receive the notification.
@@ -86,12 +95,6 @@ blueprint:
           integration: mobile_app
           multiple: true
 
-    ios_live_view:
-      name: iOS Notification
-      description: Enable if the target device runs iOS for enhanced notification support.
-      default: false
-      selector:
-        boolean: {}
 
     notification_customization:
       name: Notification Customization
@@ -99,6 +102,11 @@ blueprint:
       description: Configure optional notification features
       collapsed: true
       input:
+        ios_live_view:
+          name: iOS Notification
+          description: Enable if the target device runs iOS for enhanced notification support.
+          default: false
+          selector: { boolean: {} }
         append:
           name: Append "Camera"
           description: Add the word "Camera" to the end of the camera name (e.g., "Back Yard" → "Back Yard Camera").
@@ -144,7 +152,7 @@ blueprint:
           name: Input Helper
           description: >
             Optional toggle used as a simple "busy" flag when multiple cameras or LLM analysis are active.
-            Open the picker → click "Create a new Toggle helper" → name it "Frigate LLM Busy" → Create.
+            Open the picker → select "Create" → name it "Frigate LLM Busy" → Create.
           default: ''
           selector:
             entity:
@@ -298,15 +306,6 @@ blueprint:
           default: 10
           selector:
             number: { min: 1, max: 120, step: 1, unit_of_measurement: minutes, mode: slider }
-
-        cooldown_timestamp:
-          name: Cooldown Timestamp Helper (optional)
-          description: Input Datetime used to throttle notifications across updates; create one with both date and time.
-          default: ''
-          selector:
-            entity:
-              domain: [input_datetime]
-              multiple: false
 
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
 
