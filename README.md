@@ -30,23 +30,25 @@ Frigate AI Notification is a concise Home Assistant blueprint for smart, low‑n
 
 Precisely control when notifications are sent based on Frigate zones:
 
-- Zones to Notify On (`zones`): comma‑separated list like `driveway` or `porch, sidewalk` (blank = all zones). Supports wildcards `*` and `?` (full‑name match). Examples: `*_near`, `front_*`, `zone_?`.
-- Zone Filter Mode (`zone_filter_mode`): `include` (only notify on listed zones) or `exclude` (ignore listed zones)
-- Zone Match Type (`zone_match_type`): match by `entered`, `current`, or `either` zone lists
-- Zone Logic (`zone_logic`): when mode is `include`, require `any` or `all` of the listed zones to match
+- **Zones to Notify On** (`zones`): comma-separated list like `driveway` or `porch, sidewalk` (blank = all zones).  
+  Supports wildcards `*` and `?` (full-name match). Examples: `*_near`, `front_*`, `zone_?`.
+- **Exclude Zones** (`zones_exclude`): comma-separated list of zones to always suppress notifications, even if they also match the include list.
+  Supports wildcards the same way as include.
+- **Zone Match Type** (`zone_match_type`): which zone list to check from Frigate:  
+  - `entered` → only after.entered_zones (crossings)  
+  - `current` → only after.current_zones (currently inside)  
+  - `either` → union of entered + current
+- **Zone Logic** (`zone_logic`): when include zones are set, require `any` or `all` of the listed zones to match.  
+  - Example: zones=`driveway, porch` + logic=`all` means the object must be in *both* driveway and porch simultaneously.
+
+🔎 **Behavior:**  
+- If `zones` is left blank → everything is included (unless blocked by `zones_exclude`).  
+- If an event matches both an include and an exclude zone → **the exclude wins** (notification suppressed).
+- Matching is case‑insensitive.
 
 Filtering is applied to:
 - Initial notifications (event start)
-- Update notifications (e.g., sublabel changes)
-- Optional LLMVision analysis
-
-Matching is case‑insensitive.
-
-Examples:
-- `driveway` → notify only when the event intersects the Driveway zone
-- `porch, sidewalk` with mode `include` and logic `any` → notify when either zone matches
-- `*_far` with mode `exclude` → suppress notifications in any zone ending with `_far`
-- `front_* , *_near` with mode `include` and logic `all` → requires a zone matching each pattern (a single `front_near` zone satisfies both)
+- Update notifications (e.g., sublabel changes, new snapshots, clip ready)
 
 ---
 

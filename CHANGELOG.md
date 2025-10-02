@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.2.1] - 2025-09-29
 
+- Added Exclude Zones - a list of zones to always suppress notifications, even if they also match the include list.
 - MQTT trigger still filters `to type`: new. Event updates are consumed inside the update loop; the first push can be sent immediately (pre-loop) once zone match, cooldown, and quality checks pass. The update loop handles follow-ups (clip ready, zone/sub-label changes, and `end`).
 - Zone matching kept as include/exclude with wildcard support; internal matcher was hardened (proper escaping of `.`, `*`, `?` and optional `^…$` anchoring).
 - Quality check now prefers the best of `top_score` or `score` when available.

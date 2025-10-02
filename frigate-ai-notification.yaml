@@ -30,7 +30,7 @@ blueprint:
           custom_value: false
 
     zones:
-      name: Zones (comma-separated)
+      name: Include Zones
       description: >
         Comma-separated list of Frigate zone names. Example: driveway, porch.
         Supports wildcards (* and ?), e.g. *_near to match all "..._near" zones. Leave empty to match all zones.
@@ -38,14 +38,14 @@ blueprint:
       selector:
         text: {}
 
-    zone_filter_mode:
-      name: Zone Filter Mode
-      description: Include = notify only when event matches the listed zones. Exclude = notify when event avoids the listed zones.
-      default: include
+    zones_exclude:
+      name: Exclude Zones
+      description: >
+        Zones that always suppress notifications. Supports * and ? wildcards
+        (e.g., porch_*). If an event matches both include and exclude, it is blocked.
+      default: ''
       selector:
-        select:
-          mode: dropdown
-          options: [include, exclude]
+        text: {}
 
     zone_match_type:
       name: Zone Match Type
@@ -60,8 +60,8 @@ blueprint:
             - either       # union of entered+current
 
     zone_logic:
-      name: Zone Logic (when Mode = include)
-      description: 'any: intersects at least one listed zone; all: must be in all listed zones'
+      name: Zone Logic for include list
+      description: 'any: intersects at least one listed include zone; all: must be in all listed include zones'
       default: any
       selector:
         select:
@@ -382,15 +382,43 @@ action:
 
       # --- ZONE FILTERS ---
       input_zones: !input zones
-      input_zone_filter_mode: !input zone_filter_mode
+      input_zones_exclude: !input zones_exclude
       input_zone_match_type: !input zone_match_type
       input_zone_logic: !input zone_logic
 
+      # Parse include/exclude lists
       zones_filter: >-
         {% set z = (input_zones | default('', true) | string) %}
         {{ z.split(',') | map('trim') | select('ne','') | map('lower') | list }}
 
-      # Grab both entered_zones and current_zones safely (works for non-NEW events too)
+      zones_exclude_filter: >-
+        {% set z = (input_zones_exclude | default('', true) | string) %}
+        {{ z.split(',') | map('trim') | select('ne','') | map('lower') | list }}
+
+      # Compile wildcard -> regex for include/exclude
+      zones_include_rx: >-
+        {% set rx = [] %}
+        {% for p in (zones_filter | default([], true)) %}
+          {% set pat = '^' ~ (p
+            | regex_replace('\\.', '\\\\.')
+            | regex_replace('\\*', '.*')
+            | regex_replace('\\?', '.')) ~ '$' %}
+          {% set rx = rx + [pat] %}
+        {% endfor %}
+        {{ rx }}
+
+      zones_exclude_rx: >-
+        {% set rx = [] %}
+        {% for p in (zones_exclude_filter | default([], true)) %}
+          {% set pat = '^' ~ (p
+            | regex_replace('\\.', '\\\\.')
+            | regex_replace('\\*', '.*')
+            | regex_replace('\\?', '.')) ~ '$' %}
+          {% set rx = rx + [pat] %}
+        {% endfor %}
+        {{ rx }}
+
+      # Event zones (same as before)
       event_zones_entered: >-
         {{ (((trigger.payload_json.get('after') or {}).get('entered_zones', []) or []) | list) | map('lower') | list }}
       event_zones_current: >-
@@ -406,44 +434,41 @@ action:
         {% endif %}
 
       zone_match: >-
-        {% set P = (zones_filter | default([], true)) | map('lower') | list %}
-        {% set mode = (input_zone_filter_mode | lower) %}
-        {% set logic = (input_zone_logic | lower) %}
         {% set Z = (event_zones_checked | default([], true)) | map('lower') | list %}
-        {% if not P|length %}
-          true
+        {% set logic = (input_zone_logic | lower) %}
+        {% set RXI = zones_include_rx %}
+        {% set RXE = zones_exclude_rx %}
+
+        {# INCLUDE: if include list is empty => true #}
+        {% if not (zones_filter | length) %}
+          {% set include_ok = true %}
         {% else %}
-
-          {% set RX = P
-            | map('regex_replace','\\.', '\\\\.')
-            | map('regex_replace','\\*','.*')
-            | map('regex_replace','\\?','.')
-            | map('regex_replace','^','^')
-            | map('regex_replace','$','$')
-            | list %}
-          {% set any_hit = namespace(v=false) %}
-          {% for z in Z %}
-            {% for rx in RX %}
-              {% if z | regex_match(rx, ignorecase=true) %}
-                {% set any_hit.v = true %}
-              {% endif %}
-            {% endfor %}
-          {% endfor %}
-
-          {% if mode == 'exclude' %}
-            {{ not any_hit.v }}
-          {% elif logic == 'any' %}
-            {{ any_hit.v }}
-          {% else %}
-            {% set all_ok = namespace(v=true) %}
-            {% for rx in RX %}
+          {% if logic == 'all' %}
+            {% set include_ok = true %}
+            {% for rx in RXI %}
               {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
-                {% set all_ok.v = false %}
+                {% set include_ok = false %}
               {% endif %}
             {% endfor %}
-            {{ all_ok.v }}
+          {% else %}
+            {% set include_ok = false %}
+            {% for rx in RXI %}
+              {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+                {% set include_ok = true %}
+              {% endif %}
+            {% endfor %}
           {% endif %}
         {% endif %}
+
+        {# EXCLUDE: any match blocks #}
+        {% set exclude_hit = false %}
+        {% for rx in RXE %}
+          {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+            {% set exclude_hit = true %}
+          {% endif %}
+        {% endfor %}
+
+        {{ include_ok and (not exclude_hit) }}
 
       object: "{{ ((trigger.payload_json.get('after') or {}).get('label') | default('')) }}"
       label: "{{ object | title }}"
@@ -719,10 +744,10 @@ action:
             before_zones: "{{ event_before.get('entered_zones', []) or [] }}"
             entered_zones: "{{ event_after.get('entered_zones', []) or [] }}"
             new_snapshot: >-
-              {% set aft = event_after.get('snapshot_time') 
-                  or (event_after.get('snapshot',{}) .get('frame_time')) %}
-              {% set bef = event_before.get('snapshot_time') 
-                  or (event_before.get('snapshot',{}) .get('frame_time')) %}
+              {% set aft = event_after.get('snapshot_time')
+                  or (event_after.get('snapshot', {}).get('frame_time')) %}
+              {% set bef = event_before.get('snapshot_time')
+                  or (event_before.get('snapshot', {}).get('frame_time')) %}
               {{ update_thumbnail and (aft is not none) and (bef is not none) and (aft != bef) }}
             stationary_moved: "{{ (event_after.get('position_changes', 0) | int(0)) > (event_before.get('position_changes', 0) | int(0)) }}"
             is_stationary: "{{ event_after.get('stationary', event_after.get('motionless', False)) }}"
@@ -778,43 +803,41 @@ action:
             event_zones_checked_update: "{{ (event_zones_checked_before + event_zones_checked_now) | unique | list }}"
 
             zone_match_update: >-
-              {% set P = (zones_filter | default([], true)) | map('lower') | list %}
-              {% set mode = (input_zone_filter_mode | lower) %}
-              {% set logic = (input_zone_logic | lower) %}
               {% set Z = (event_zones_checked_update | default([], true)) | map('lower') | list %}
-              {% if not P|length %}
-                true
-              {% else %}
-                {% set RX = P
-                  | map('regex_replace','\\.', '\\\\.') 
-                  | map('regex_replace','\\*','.*') 
-                  | map('regex_replace','\\?','.') 
-                  | map('regex_replace','^','^') 
-                  | map('regex_replace','$','$') 
-                  | list %}
-                {% set any_hit = namespace(v=false) %}
-                {% for z in Z %}
-                  {% for rx in RX %}
-                    {% if z | regex_match(rx, ignorecase=true) %}
-                      {% set any_hit.v = true %}
-                    {% endif %}
-                  {% endfor %}
-                {% endfor %}
+              {% set logic = (input_zone_logic | lower) %}
+              {% set RXI = zones_include_rx %}
+              {% set RXE = zones_exclude_rx %}
 
-                {% if mode == 'exclude' %}
-                  {{ not any_hit.v }}
-                {% elif logic == 'any' %}
-                  {{ any_hit.v }}
-                {% else %}
-                  {% set all_ok = namespace(v=true) %}
-                  {% for rx in RX %}
+              {# INCLUDE: empty include list => true #}
+              {% if not (zones_filter | length) %}
+                {% set include_ok = true %}
+              {% else %}
+                {% if logic == 'all' %}
+                  {% set include_ok = true %}
+                  {% for rx in RXI %}
                     {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
-                      {% set all_ok.v = false %}
+                      {% set include_ok = false %}
                     {% endif %}
                   {% endfor %}
-                  {{ all_ok.v }}
+                {% else %}
+                  {% set include_ok = false %}
+                  {% for rx in RXI %}
+                    {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+                      {% set include_ok = true %}
+                    {% endif %}
+                  {% endfor %}
                 {% endif %}
               {% endif %}
+
+              {# EXCLUDE: any match blocks #}
+              {% set exclude_hit = false %}
+              {% for rx in RXE %}
+                {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+                  {% set exclude_hit = true %}
+                {% endif %}
+              {% endfor %}
+
+              {{ include_ok and (not exclude_hit) }}
 
             title: >-
               {% if sub_label_text %}
