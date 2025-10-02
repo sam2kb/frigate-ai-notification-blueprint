@@ -299,6 +299,15 @@ blueprint:
           selector:
             number: { min: 1, max: 120, step: 1, unit_of_measurement: minutes, mode: slider }
 
+        cooldown_timestamp:
+          name: Cooldown Timestamp Helper (optional)
+          description: Input Datetime used to throttle notifications across updates; create one with both date and time.
+          default: ''
+          selector:
+            entity:
+              domain: [input_datetime]
+              multiple: false
+
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
 
 trigger_variables:
@@ -348,6 +357,7 @@ action:
       input_local_url: !input local_url
       input_frigate_url: !input frigate_url
       input_frigate_port: !input frigate_port
+      input_cooldown_datetime: !input cooldown_timestamp
       ha_external_url: "{{ state_attr('homeassistant', 'external_url') | default('', true) | trim }}"
       ha_internal_url: "{{ state_attr('homeassistant', 'internal_url') | default('', true) | trim }}"
       input_labels: !input labels
@@ -468,6 +478,15 @@ action:
         {{ ((d.get('hours',0) | int(0) + (d.get('days',0) | int(0)) * 24) * 3600)
            + ((d.get('minutes',0) | int(0)) * 60)
            + (d.get('seconds',0) | int(0)) }}
+      last_notification_ts: "{{ state_attr(input_cooldown_datetime, 'timestamp') | default(0) }}"
+      now_ts: "{{ as_timestamp(now()) | int(0) }}"
+      cooldown_active: >-
+        {% set ent = (input_cooldown_datetime | default('', true) | string) %}
+        {% if ent|length == 0 %}
+          false
+        {% else %}
+          {{ (now_ts - (last_notification_ts | int(0))) < (cooldown_secs | int(0)) }}
+        {% endif %}
 
       # URL derivation
       base_url: >-
@@ -572,6 +591,8 @@ action:
         - condition: template
           value_template: "{{ zone_match }}"
         - condition: template
+          value_template: "{{ not cooldown_active }}"
+        - condition: template
           value_template: >
             {% set a = trigger.payload_json.get('after', {}) or {} %}
             {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
@@ -642,6 +663,17 @@ action:
                             title: Open Frigate
                             uri: "{{ frigate_review_url }}"
 
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ (input_cooldown_datetime | default('', true) | string) | length > 0 }}"
+              sequence:
+                - service: input_datetime.set_datetime
+                  data:
+                    entity_id: "{{ input_cooldown_datetime }}"
+                    date: "{{ now().strftime('%Y-%m-%d') }}"
+                    time: "{{ now().strftime('%H:%M:%S') }}"
+
   # UPDATE LOOP — notify on new snapshot or sublabel change (respect zone filter)
   - repeat:
       sequence:
@@ -663,7 +695,11 @@ action:
             before_zones: "{{ event_before.get('entered_zones', []) or [] }}"
             entered_zones: "{{ event_after.get('entered_zones', []) or [] }}"
             new_snapshot: >-
-              {{ update_thumbnail and (aft != bef) }}
+              {% set aft = event_after.get('snapshot_time') 
+                  or (event_after.get('snapshot',{}) .get('frame_time')) %}
+              {% set bef = event_before.get('snapshot_time') 
+                  or (event_before.get('snapshot',{}) .get('frame_time')) %}
+              {{ update_thumbnail and (aft is not none) and (bef is not none) and (aft != bef) }}
             stationary_moved: "{{ (event_after.get('position_changes', 0) | int(0)) > (event_before.get('position_changes', 0) | int(0)) }}"
             is_stationary: "{{ event_after.get('stationary', event_after.get('motionless', False)) }}"
             sub_label: "{{ event_after.get('sub_label') }}"
@@ -813,6 +849,14 @@ action:
                         or (event.get('type') == 'end')
                     ) }}
                 - condition: template
+                  value_template: >-
+                    {% set ent = (input_cooldown_datetime | default('', true) | string) %}
+                    {% if ent|length == 0 %}
+                      true
+                    {% else %}
+                      {{ (as_timestamp(now()) - (state_attr(input_cooldown_datetime, 'timestamp') | int(0))) >= (cooldown_secs | int(0)) }}
+                    {% endif %}
+                - condition: template
                   value_template: >
                     {% set a = event_after or {} %}
                     {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
@@ -882,6 +926,16 @@ action:
                                   - action: URI
                                     title: Open Frigate
                                     uri: "{{ frigate_review_url }}"
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ (input_cooldown_datetime | default('', true) | string) | length > 0 }}"
+              sequence:
+                - service: input_datetime.set_datetime
+                  data:
+                    entity_id: "{{ input_cooldown_datetime }}"
+                    date: "{{ now().strftime('%Y-%m-%d') }}"
+                    time: "{{ now().strftime('%H:%M:%S') }}"
       until:
         - condition: template
           value_template: "{{ not wait.trigger or event.get('type') == 'end' }}"
