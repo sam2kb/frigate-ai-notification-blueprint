@@ -586,6 +586,20 @@ action:
     value_template: "{{ camera in (camera_slugs_vars or []) }}"
 
   - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ input_debug }}"
+        sequence:
+          - service: logbook.log
+            data:
+              name: Frigate Notification
+              message: >
+                DEBUG (initial decision):
+                  event_type={{ event_type }} camera={{ camera }} zone_match={{ zone_match }} cooldown_active={{ cooldown_active }}
+                  score_check={{ ( (trigger.payload_json.get('after', {}) or {}).get('top_score') if (trigger.payload_json.get('after', {}) or {}).get('top_score') is not none else (trigger.payload_json.get('after', {}) or {}).get('score', 1) ) | float(1) }}
+                  require_clip={{ require_clip }} has_clip={{ (trigger.payload_json.get('after') or {}).get('has_clip', false) }} require_not_fp={{ require_not_false_positive }}
+
+  - choose:
     - conditions:
         - condition: template
           value_template: "{{ zone_match }}"
@@ -661,6 +675,17 @@ action:
                           - action: URI
                             title: Open Frigate
                             uri: "{{ frigate_review_url }}"
+
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ input_debug }}"
+              sequence:
+                - service: logbook.log
+                  data:
+                    name: Frigate Notification
+                    message: >
+                      INFO (initial sent): camera={{ camera }} id={{ id }} title="{{ title }}" clip_ready={{ has_clip }} devices={{ (raw_device | count) }}
 
         - choose:
             - conditions:
@@ -813,27 +838,10 @@ action:
                   data:
                     name: Frigate Notification
                     message: >
-                      DEBUG (update loop):
-                        Event ID: {{ id }}
-                        Trigger type: {{ event.get('type', 'unknown') }}
-                        New snapshot: {{ new_snapshot }}
-                        Stationary moved: {{ stationary_moved }}
-                        Is stationary now: {{ is_stationary }}
-                        Sublabel changed: {{ sub_label_changed }}
-                        Entered zones changed: {{ entered_zones_changed }}
-                        ZONES:
-                          entered={{ entered_zones_lower }}
-                          current={{ current_zones_lower }}
-                          checked={{ event_zones_checked_update }}
-                          patterns={{ zones_filter }}
-                          mode={{ input_zone_filter_mode }}
-                          logic={{ input_zone_logic }}
-                        FLAGS:
-                          new_snapshot={{ new_snapshot }}
-                          sub_label_changed={{ sub_label_changed }}
-                          zones_checked_changed={{ zones_checked_changed }}
-                          has_clip_became_true={{ has_clip_became_true }}
-                          zone_match_update={{ zone_match_update }}
+                      DEBUG (update loop): id={{ id }} type={{ event.get('type', 'unknown') }}
+                        new_snapshot={{ new_snapshot }} sub_label_changed={{ sub_label_changed }}
+                        zones_checked_changed={{ zones_checked_changed }} has_clip_became_true={{ has_clip_became_true }}
+                        zone_match_update={{ zone_match_update }}
 
         - choose:
             - conditions:
@@ -925,6 +933,18 @@ action:
                                   - action: URI
                                     title: Open Frigate
                                     uri: "{{ frigate_review_url }}"
+
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ input_debug }}"
+              sequence:
+                - service: logbook.log
+                  data:
+                    name: Frigate Notification
+                    message: >
+                      INFO (update sent): camera={{ camera }} id={{ id }}
+                        new_snapshot={{ new_snapshot }} sub_label_changed={{ sub_label_changed }} zones_checked_changed={{ zones_checked_changed }} has_clip_became_true={{ has_clip_became_true }}
         - choose:
             - conditions:
                 - condition: template
