@@ -437,15 +437,18 @@ action:
 
       zone_match: >-
         {% set Z = (event_zones_checked | default([], true)) | map('lower') | list %}
+        {% set zones_known = Z | length > 0 %}
         {% set logic = (input_zone_logic | lower) %}
         {% set RXI = zones_include_rx %}
         {% set RXE = zones_exclude_rx %}
 
-        {# INCLUDE: if include list is empty => true #}
-        {% if not (zones_filter | length) %}
+        {# INCLUDE: empty include => true; otherwise enforce only when zones are known #}
+        {% if (zones_filter | length) == 0 %}
           {% set include_ok = true %}
         {% else %}
-          {% if logic == 'all' %}
+          {% if not zones_known %}
+            {% set include_ok = false %}
+          {% elif logic == 'all' %}
             {% set include_ok = true %}
             {% for rx in RXI %}
               {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
@@ -626,103 +629,111 @@ action:
                   require_clip={{ require_clip }} has_clip={{ (trigger.payload_json.get('after') or {}).get('has_clip', false) }} require_not_fp={{ require_not_false_positive }}
 
   - choose:
-    - conditions:
-        - condition: template
-          value_template: "{{ zone_match }}"
-        - condition: template
-          value_template: "{{ not cooldown_active }}"
-        - condition: template
-          value_template: >
-            {% set a = trigger.payload_json.get('after', {}) or {} %}
-            {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
-            {% set score_ok = best >= (min_score | float(0)) %}
-            {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
-            {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
-            {{ score_ok and clip_ok and fp_ok }}
-      sequence:
-        - repeat:
-            for_each: "{{ raw_device }}"
-            sequence:
-              - variables:
-                  input_notify_device: >-
-                    {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
-              - choose:
-                  - conditions:
-                      - condition: template
-                        value_template: "{{ (input_dashboard | default('', true) | string | trim) != '' }}"
-                    sequence:
-                      - service: "{{ input_notify_device }}"
-                        data:
-                          title: "{{ title }}"
-                          message: "{{ message }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ zone_match }}"
+          - condition: template
+            value_template: "{{ not cooldown_active }}"
+          - condition: template
+            value_template: >
+              {% set a = trigger.payload_json.get('after', {}) or {} %}
+              {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
+              {% set score_ok = best >= (min_score | float(0)) %}
+              {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
+              {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
+              {{ score_ok and clip_ok and fp_ok }}
+        sequence:
+          - variables:
+              initial_sent: false
+          - repeat:
+              for_each: "{{ raw_device }}"
+              sequence:
+                - variables:
+                    input_notify_device: >-
+                      {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ (input_dashboard | default('', true) | string | trim) != '' }}"
+                      sequence:
+                        - service: "{{ input_notify_device }}"
                           data:
-                            channel: "{{ camera_name }} Notifications"
-                            timeout: "{{ (input_notification_timeout * 60) | int }}"
-                            tag: "{{ id }}"
-                            group: "{{ camera_name }}"
-                            notification_icon: "{{ icon }}"
-                            data: { ttl: "0", priority: "high" }
-                            attachment: { url: "{{ thumbnail_url }}" }
-                            image: "{{ thumbnail_android_url }}"
-                            clickAction: "{{ click_target_url }}"
-                            push: { interruption-level: active }
-                            alert_once: "{{ alert_once }}"
-                            actions:
-                              - action: URI
-                                title: View Clip
-                                uri: "{{ clip_url }}"
-                              - action: URI
-                                title: View Summary
-                                uri: "{{ input_dashboard }}"
-                              - action: URI
-                                title: Open Frigate
-                                uri: "{{ frigate_review_url }}"
-                default:
-                  - service: "{{ input_notify_device }}"
-                    data:
-                      title: "{{ title }}"
-                      message: "{{ message }}"
+                            title: "{{ title }}"
+                            message: "{{ message }}"
+                            data:
+                              channel: "{{ camera_name }} Notifications"
+                              timeout: "{{ (input_notification_timeout * 60) | int }}"
+                              tag: "{{ id }}"
+                              group: "{{ camera_name }}"
+                              notification_icon: "{{ icon }}"
+                              data: { ttl: "0", priority: "high" }
+                              attachment: { url: "{{ thumbnail_url }}" }
+                              image: "{{ thumbnail_android_url }}"
+                              clickAction: "{{ click_target_url }}"
+                              push: { interruption-level: active }
+                              alert_once: "{{ alert_once }}"
+                              actions:
+                                - action: URI
+                                  title: View Clip
+                                  uri: "{{ clip_url }}"
+                                - action: URI
+                                  title: View Summary
+                                  uri: "{{ input_dashboard }}"
+                                - action: URI
+                                  title: Open Frigate
+                                  uri: "{{ frigate_review_url }}"
+                        - variables:
+                            initial_sent: true
+                  default:
+                    - service: "{{ input_notify_device }}"
                       data:
-                        channel: "{{ camera_name }} Notifications"
-                        timeout: "{{ (input_notification_timeout * 60) | int }}"
-                        tag: "{{ id }}"
-                        group: "{{ camera_name }}"
-                        notification_icon: "{{ icon }}"
-                        data: { ttl: "0", priority: "high" }
-                        attachment: { url: "{{ thumbnail_url }}" }
-                        image: "{{ thumbnail_android_url }}"
-                        clickAction: "{{ click_target_url }}"
-                        push: { interruption-level: active }
-                        alert_once: "{{ alert_once }}"
-                        actions:
-                          - action: URI
-                            title: View Clip
-                            uri: "{{ clip_url }}"
-                          - action: URI
-                            title: Open Frigate
-                            uri: "{{ frigate_review_url }}"
+                        title: "{{ title }}"
+                        message: "{{ message }}"
+                        data:
+                          channel: "{{ camera_name }} Notifications"
+                          timeout: "{{ (input_notification_timeout * 60) | int }}"
+                          tag: "{{ id }}"
+                          group: "{{ camera_name }}"
+                          notification_icon: "{{ icon }}"
+                          data: { ttl: "0", priority: "high" }
+                          attachment: { url: "{{ thumbnail_url }}" }
+                          image: "{{ thumbnail_android_url }}"
+                          clickAction: "{{ click_target_url }}"
+                          push: { interruption-level: active }
+                          alert_once: "{{ alert_once }}"
+                          actions:
+                            - action: URI
+                              title: View Clip
+                              uri: "{{ clip_url }}"
+                            - action: URI
+                              title: Open Frigate
+                              uri: "{{ frigate_review_url }}"
+                    - variables:
+                        initial_sent: true
 
-        - choose:
-            - conditions:
-                - condition: template
-                  value_template: "{{ input_debug }}"
-              sequence:
-                - service: logbook.log
-                  data:
-                    name: Frigate Notification
-                    message: >
-                      INFO (initial sent): camera={{ camera }} id={{ id }} title="{{ title }}" clip_ready={{ has_clip }} devices={{ (raw_device | count) }}
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ input_debug }}"
+                  - condition: template
+                    value_template: "{{ initial_sent }}"
+                sequence:
+                  - service: logbook.log
+                    data:
+                      name: Frigate Notification
+                      message: >
+                        INFO (initial sent): camera={{ camera }} id={{ id }} title="{{ title }}" clip_ready={{ has_clip }} devices={{ (raw_device | count) }}
 
-        - choose:
-            - conditions:
-                - condition: template
-                  value_template: "{{ (input_cooldown_datetime | default('', true) | string) | length > 0 }}"
-              sequence:
-                - service: input_datetime.set_datetime
-                  data:
-                    entity_id: "{{ input_cooldown_datetime }}"
-                    date: "{{ now().strftime('%Y-%m-%d') }}"
-                    time: "{{ now().strftime('%H:%M:%S') }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (input_cooldown_datetime | default('', true) | string) | length > 0 }}"
+                sequence:
+                  - service: input_datetime.set_datetime
+                    data:
+                      entity_id: "{{ input_cooldown_datetime }}"
+                      date: "{{ now().strftime('%Y-%m-%d') }}"
+                      time: "{{ now().strftime('%H:%M:%S') }}"
 
   # UPDATE LOOP — notify on new snapshot or sublabel change (respect zone filter)
   - repeat:
@@ -745,10 +756,8 @@ action:
             before_zones: "{{ event_before.get('entered_zones', []) or [] }}"
             entered_zones: "{{ event_after.get('entered_zones', []) or [] }}"
             new_snapshot: >-
-              {% set aft = event_after.get('snapshot_time')
-                  or (event_after.get('snapshot', {}).get('frame_time')) %}
-              {% set bef = event_before.get('snapshot_time')
-                  or (event_before.get('snapshot', {}).get('frame_time')) %}
+              {% set aft = event_after.get('snapshot_time') or (event_after.get('snapshot', {}).get('frame_time')) %}
+              {% set bef = event_before.get('snapshot_time') or (event_before.get('snapshot', {}).get('frame_time')) %}
               {{ update_thumbnail and (aft is not none) and (bef is not none) and (aft != bef) }}
             stationary_moved: "{{ (event_after.get('position_changes', 0) | int(0)) > (event_before.get('position_changes', 0) | int(0)) }}"
             is_stationary: "{{ event_after.get('stationary', event_after.get('motionless', False)) }}"
@@ -804,15 +813,18 @@ action:
 
             zone_match_update: >-
               {% set Z = (event_zones_checked_update | default([], true)) | map('lower') | list %}
+              {% set zones_known = Z | length > 0 %}
               {% set logic = (input_zone_logic | lower) %}
               {% set RXI = zones_include_rx %}
               {% set RXE = zones_exclude_rx %}
 
-              {# INCLUDE: empty include list => true #}
-              {% if not (zones_filter | length) %}
+              {# INCLUDE: empty include => true; otherwise enforce only when zones are known #}
+              {% if (zones_filter | length) == 0 %}
                 {% set include_ok = true %}
               {% else %}
-                {% if logic == 'all' %}
+                {% if not zones_known %}
+                  {% set include_ok = false %}
+                {% elif logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
                     {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
@@ -893,6 +905,8 @@ action:
                     {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
                     {{ score_ok and clip_ok and fp_ok }}
               sequence:
+                - variables:
+                    update_sent: false
                 - repeat:
                     for_each: "{{ raw_device }}"
                     sequence:
@@ -930,6 +944,8 @@ action:
                                       - action: URI
                                         title: Open Frigate
                                         uri: "{{ frigate_review_url }}"
+                              - variables:
+                                  update_sent: true
                         default:
                           - service: "{{ input_notify_device }}"
                             data:
@@ -954,11 +970,15 @@ action:
                                   - action: URI
                                     title: Open Frigate
                                     uri: "{{ frigate_review_url }}"
+                          - variables:
+                              update_sent: true
 
         - choose:
             - conditions:
                 - condition: template
                   value_template: "{{ input_debug }}"
+                - condition: template
+                  value_template: "{{ update_sent }}"
               sequence:
                 - service: logbook.log
                   data:
