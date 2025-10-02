@@ -403,14 +403,13 @@ action:
         {% set Z = (event_zones_checked | default([], true)) | map('lower') | list %}
         {% if not P|length %}
           true
-        {% else %}
-          {# convert glob (*, ?) to safe regex ^...$ #}
+        {% else %}
           {% set RX = P
-            | map('regex_replace','\\.', '\\\\.')     # escape dots
-            | map('regex_replace','\\*','.*')         # * -> .*
-            | map('regex_replace','\\?','.')          # ? -> .
-            | map('regex_replace','^','^')            # anchor start
-            | map('regex_replace','$','$')            # anchor end
+            | map('regex_replace','\\.', '\\\\.')
+            | map('regex_replace','\\*','.*')
+            | map('regex_replace','\\?','.')
+            | map('regex_replace','^','^')
+            | map('regex_replace','$','$')
             | list %}
           {% set any_hit = namespace(v=false) %}
           {% for z in Z %}
