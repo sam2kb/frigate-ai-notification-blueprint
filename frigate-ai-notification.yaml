@@ -34,7 +34,7 @@ blueprint:
       description: >
         Comma-separated list of Frigate zone names. Example: driveway, porch.
         Supports wildcards (* and ?), e.g. *_near to match all "..._near" zones. Leave empty to match all zones.
-      default: ''
+      default: ""
       selector:
         text: {}
 
@@ -42,7 +42,7 @@ blueprint:
       name: Exclude Zones
       description: >
         Zones that always suppress notifications. If an event matches both include and exclude, it is BLOCKED.
-      default: ''
+      default: ""
       selector:
         text: {}
 
@@ -54,20 +54,18 @@ blueprint:
         select:
           mode: dropdown
           options:
-            - entered      # only after.entered_zones (crossings)
-            - current      # only after.current_zones (currently inside)
-            - either       # union of entered+current
+            - entered # only after.entered_zones (crossings)
+            - current # only after.current_zones (currently inside)
+            - either # union of entered+current
 
     zone_logic:
       name: Zone Logic for include list
-      description: 'any: intersects at least one listed include zone; all: must be in all listed include zones'
+      description: "any: intersects at least one listed include zone; all: must be in all listed include zones"
       default: any
       selector:
         select:
           mode: dropdown
           options: [any, all]
-
-    
 
     cooldown:
       name: Cooldown
@@ -80,7 +78,7 @@ blueprint:
     cooldown_timestamp:
       name: Cooldown Helper (optional)
       description: Recommended datetime helper used to throttle notifications across updates. Open the picker → select "Create" → name it "Frigate Notification Cooldown" → select "Date and Time" → Create.
-      default: ''
+      default: ""
       selector:
         entity:
           domain: [input_datetime]
@@ -93,7 +91,6 @@ blueprint:
         device:
           integration: mobile_app
           multiple: true
-
 
     notification_customization:
       name: Notification Customization
@@ -152,7 +149,7 @@ blueprint:
           description: >
             Optional toggle used as a simple "busy" flag when multiple cameras or LLM analysis are active.
             Open the picker → select "Create" → name it "Frigate LLM Busy" → Create.
-          default: ''
+          default: ""
           selector:
             entity:
               domain: [input_boolean]
@@ -160,7 +157,7 @@ blueprint:
         dashboard:
           name: Event Summary Dashboard
           description: Optional dashboard URL opened by the "View Summary" action; leave blank to hide the button.
-          default: ''
+          default: ""
           selector: { text: {} }
 
         generate_title:
@@ -184,7 +181,7 @@ blueprint:
         provider:
           name: Provider
           description: Choose the LLMVision provider. See documentation for supported options.
-          default: ''
+          default: ""
           selector:
             config_entry:
               integration: llmvision
@@ -271,19 +268,19 @@ blueprint:
         base_url:
           name: External Base URL
           description: Public URL for Home Assistant. Leave empty to use configured external URL.
-          default: ''
+          default: ""
           selector: { text: {} }
 
         local_url:
           name: Internal Base URL
           description: Local URL for Home Assistant. Leave empty to use configured internal URL.
-          default: ''
+          default: ""
           selector: { text: {} }
 
         frigate_url:
           name: Frigate Instance URL
           description: Base URL for Frigate web UI (omit trailing /review). Leave empty to derive automatically.
-          default: ''
+          default: ""
           selector: { text: {} }
 
         frigate_port:
@@ -304,7 +301,14 @@ blueprint:
           description: Time before Android automatically clears the notification
           default: 10
           selector:
-            number: { min: 1, max: 120, step: 1, unit_of_measurement: minutes, mode: slider }
+            number:
+              {
+                min: 1,
+                max: 120,
+                step: 1,
+                unit_of_measurement: minutes,
+                mode: slider,
+              }
 
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
 
@@ -378,7 +382,6 @@ action:
             or (trigger.payload_json.get('before') or {}).get('camera')
             or '' }}
       camera: "{{ (event_camera_raw | string) | lower | replace('-','_') }}"
-
       # --- ZONE FILTERS ---
       input_zones: !input zones
       input_zones_exclude: !input zones_exclude
@@ -483,7 +486,6 @@ action:
           {{ '' }}
         {% endif %}
       raw_device: !input notify_device
-
       camera_name: >-
         {% set n = camera | replace('_', ' ') | title %}
         {% if input_expand %}{% set n = n | regex_replace('(?i)\\bcam\\b', 'Camera') %}{% endif %}
@@ -733,8 +735,8 @@ action:
               payload: "{{ id }}"
           timeout: "{{ cooldown_td }}"
           continue_on_timeout: true
-        
-        - delay: "00:00:02"  # This gives Frigate a beat to populate zones/clip flags before we evaluate.
+
+        - delay: "00:00:02" # This gives Frigate a beat to populate zones/clip flags before we evaluate.
 
         - variables:
             event: "{{ wait.trigger.payload_json if wait.trigger else {} }}"
@@ -760,7 +762,6 @@ action:
                 {{ '' }}
               {% endif %}
             sub_label_changed: "{{ sub_label_text != (event_before.get('sub_label') or '') }}"
-
             # Update-loop: clip readiness and click target (fallback to snapshot)
             has_clip_before: "{{ event_before.get('has_clip', false) }}"
             has_clip_now: "{{ event_after.get('has_clip', false) }}"
