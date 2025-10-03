@@ -402,7 +402,7 @@ action:
           {% set raw = (p | lower | trim) %}
           {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
           {% set body = raw
-            | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1')  # escape metachars
+            | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1')
             | replace('*','.*')
             | replace('?','.')
           %}
