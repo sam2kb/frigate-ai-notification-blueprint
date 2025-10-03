@@ -920,6 +920,7 @@ action:
               sequence:
                 - variables:
                     ended: true
+                    final_has_clip: "{{ has_clip_now }}"
                 - choose:
                     - conditions:
                         - condition: template
@@ -930,7 +931,8 @@ action:
                             name: Frigate Notification
                             message: >
                               DEBUG (end seen): id={{ id }} final_zones={{ final_zones_union }} zone_match_final={{ zone_match_final }}
-                              RXI={{ zones_include_rx }} RXE={{ zones_exclude_rx }}
+                              inc_raw={{ zones_filter }} RXI={{ zones_include_rx }}
+                              exc_raw={{ zones_exclude_filter }} RXE={{ zones_exclude_rx }}
 
         # Only run debug/update notifications for non-end updates
         - choose:
@@ -1107,7 +1109,7 @@ action:
                       data: { ttl: "0", priority: "high" }
                       attachment: { url: "{{ thumbnail_url }}" }
                       image: "{{ thumbnail_android_url }}"
-                      clickAction: "{{ clip_url if has_clip else snapshot_url }}"
+                      clickAction: "{{ clip_url if (final_has_clip | default(has_clip)) else snapshot_url }}"
                       push: { interruption-level: active }
                       alert_once: "{{ alert_once }}"
                       actions:
