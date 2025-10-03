@@ -920,12 +920,12 @@ action:
                 {% set RXE = RXE + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
               {% endfor %}
 
-              {# EXCLUDE first #}
+              {# Exclude first: any hit blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
-                {% for z in Z %}
-                  {% if z is match(rx, ignorecase=True) %}{% set exclude_hit = true %}{% endif %}
-                {% endfor %}
+                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
+                  {% set exclude_hit = true %}
+                {% endif %}
               {% endfor %}
 
               {% if (zones_filter | length) == 0 %}
@@ -934,18 +934,16 @@ action:
                 {% if logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% set found = false %}
-                    {% for z in Z %}
-                      {% if z is match(rx, ignorecase=True) %}{% set found = true %}{% endif %}
-                    {% endfor %}
-                    {% if not found %}{% set include_ok = false %}{% endif %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
+                      {% set include_ok = false %}
+                    {% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% for z in Z %}
-                      {% if z is match(rx, ignorecase=True) %}{% set include_ok = true %}{% endif %}
-                    {% endfor %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
+                      {% set include_ok = true %}
+                    {% endif %}
                   {% endfor %}
                 {% endif %}
                 {{ include_ok and (not exclude_hit) }}
@@ -969,9 +967,11 @@ action:
                           data:
                             name: Frigate Notification
                             message: >
-                              DEBUG (end seen): id={{ id }} final_zones={{ final_zones_union }} zone_match_final={{ zone_match_final }}
-                              inc_raw={{ zones_filter }} RXI={{ zones_include_rx }}
-                              exc_raw={{ zones_exclude_filter }} RXE={{ zones_exclude_rx }}
+                              DEBUG (end seen): id={{ id }}
+                              final_zones={{ final_zones_union }}
+                              inc_raw={{ zones_filter }} RXI_local={{ RXI }}
+                              exc_raw={{ zones_exclude_filter }} RXE_local={{ RXE }}
+                              zone_match_final={{ zone_match_final }}
 
         # Only run debug/update notifications for non-end updates
         - choose:
