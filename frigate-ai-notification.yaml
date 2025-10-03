@@ -824,10 +824,24 @@ action:
               {% set Z = (event_zones_checked_update | default([], true)) | map('lower') | list %}
               {% set zones_known = Z | length > 0 %}
               {% set logic = (input_zone_logic | lower) %}
-              {% set RXI = zones_include_rx %}
-              {% set RXE = zones_exclude_rx %}
 
-              {# INCLUDE: empty include => true; otherwise enforce only when zones are known #}
+              {# Build include/exclude regexes locally #}
+              {% set RXI = [] %}
+              {% for p in (zones_filter | default([], true)) %}
+                {% set raw = (p | lower | trim) %}
+                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
+                {% set RXI = RXI + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+              {% endfor %}
+
+              {% set RXE = [] %}
+              {% for p in (zones_exclude_filter | default([], true)) %}
+                {% set raw = (p | lower | trim) %}
+                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
+                {% set RXE = RXE + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+              {% endfor %}
+
               {% if (zones_filter | length) == 0 %}
                 {% set include_ok = true %}
               {% else %}
@@ -837,24 +851,23 @@ action:
                   {% set include_ok = true %}
                   {% for rx in RXI %}
                     {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
-                      {% set include_ok = false %}
+                    {% set include_ok = false %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
                     {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                      {% set include_ok = true %}
+                    {% set include_ok = true %}
                     {% endif %}
                   {% endfor %}
                 {% endif %}
               {% endif %}
 
-              {# EXCLUDE: any match blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
                 {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                  {% set exclude_hit = true %}
+                {% set exclude_hit = true %}
                 {% endif %}
               {% endfor %}
 
@@ -881,36 +894,49 @@ action:
               ) | map('lower') | unique | list }}
 
             zone_match_final: >-
-              {% set Z = final_zones_union %}
+              {% set Z = final_zones_union | map('lower') | list %}
               {% set logic = (input_zone_logic | lower) %}
-              {% set RXI = zones_include_rx %}
-              {% set RXE = zones_exclude_rx %}
+
+              {# Build include/exclude regexes locally #}
+              {% set RXI = [] %}
+              {% for p in (zones_filter | default([], true)) %}
+                {% set raw = (p | lower | trim) %}
+                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
+                {% set RXI = RXI + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+              {% endfor %}
+
+              {% set RXE = [] %}
+              {% for p in (zones_exclude_filter | default([], true)) %}
+                {% set raw = (p | lower | trim) %}
+                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
+                {% set RXE = RXE + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+              {% endfor %}
+
+              {# Exclude first #}
+              {% set exclude_hit = (RXE|length>0) and (Z | select('match', '^(?:' ~ (RXE|join('|')) ~ ')$', ignorecase=True) | list | length > 0) %}
+
               {% if (zones_filter | length) == 0 %}
-                {% set include_ok = true %}
+                {{ not exclude_hit }}
               {% else %}
                 {% if logic == 'all' %}
-                  {% set include_ok = true %}
+                  {% set include_ok = True %}
                   {% for rx in RXI %}
                     {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
-                      {% set include_ok = false %}
+                    {% set include_ok = False %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
-                  {% set include_ok = false %}
+                  {% set include_ok = False %}
                   {% for rx in RXI %}
                     {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                      {% set include_ok = true %}
+                    {% set include_ok = True %}
                     {% endif %}
                   {% endfor %}
                 {% endif %}
+                {{ include_ok and (not exclude_hit) }}
               {% endif %}
-              {% set exclude_hit = false %}
-              {% for rx in RXE %}
-                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                  {% set exclude_hit = true %}
-                {% endif %}
-              {% endfor %}
-              {{ include_ok and (not exclude_hit) }}
 
         # Mark 'ended' and skip rest of this iteration if we saw an end
         - choose:
