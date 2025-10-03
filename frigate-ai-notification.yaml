@@ -1,10 +1,10 @@
 blueprint:
   name: Frigate AI Notification
+  author: sam2kb
   description: >
     Sends notifications for Frigate events, with optional LLM clip analysis, Android/iOS
-    support, *zone include/exclude filtering* (entered/current/either), and extended logic
-    for loitering or sublabel changes. Supports notification cooldown, custom icons,
-    click actions, and dynamic message formatting.
+    support, zone include/exclude filtering, extended logic for loitering and cooldown.
+  source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint
   domain: automation
   homeassistant:
     min_version: 2024.6.0
