@@ -459,14 +459,14 @@ action:
           {% elif logic == 'all' %}
             {% set include_ok = true %}
             {% for rx in RXI %}
-              {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) == 0 %}
+              {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
                 {% set include_ok = false %}
               {% endif %}
             {% endfor %}
           {% else %}
             {% set include_ok = false %}
             {% for rx in RXI %}
-              {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) > 0 %}
+              {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
                 {% set include_ok = true %}
               {% endif %}
             {% endfor %}
@@ -476,7 +476,7 @@ action:
         {# EXCLUDE: any match blocks #}
         {% set exclude_hit = false %}
         {% for rx in RXE %}
-          {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) > 0 %}
+          {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
             {% set exclude_hit = true %}
           {% endif %}
         {% endfor %}
@@ -836,14 +836,14 @@ action:
                 {% elif logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) == 0 %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
                       {% set include_ok = false %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) > 0 %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
                       {% set include_ok = true %}
                     {% endif %}
                   {% endfor %}
@@ -853,7 +853,7 @@ action:
               {# EXCLUDE: any match blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
-                {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) > 0 %}
+                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
                   {% set exclude_hit = true %}
                 {% endif %}
               {% endfor %}
@@ -891,14 +891,14 @@ action:
                 {% if logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) == 0 %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
                       {% set include_ok = false %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) > 0 %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
                       {% set include_ok = true %}
                     {% endif %}
                   {% endfor %}
@@ -906,7 +906,7 @@ action:
               {% endif %}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
-                {% if (Z | select('regex_match', rx, ignorecase=True) | list | length) > 0 %}
+                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
                   {% set exclude_hit = true %}
                 {% endif %}
               {% endfor %}
@@ -930,6 +930,7 @@ action:
                             name: Frigate Notification
                             message: >
                               DEBUG (end seen): id={{ id }} final_zones={{ final_zones_union }} zone_match_final={{ zone_match_final }}
+                              RXI={{ zones_include_rx }} RXE={{ zones_exclude_rx }}
 
         # Only run debug/update notifications for non-end updates
         - choose:
