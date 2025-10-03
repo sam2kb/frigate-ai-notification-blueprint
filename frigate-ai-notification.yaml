@@ -825,7 +825,7 @@ action:
               {% set zones_known = Z | length > 0 %}
               {% set logic = (input_zone_logic | lower) %}
 
-              {# Build include/exclude regexes locally #}
+              {# Compile include patterns locally #}
               {% set RXI = [] %}
               {% for p in (zones_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
@@ -834,6 +834,7 @@ action:
                 {% set RXI = RXI + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
               {% endfor %}
 
+              {# Compile exclude patterns locally #}
               {% set RXE = [] %}
               {% for p in (zones_exclude_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
@@ -850,25 +851,19 @@ action:
                 {% elif logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
-                    {% set include_ok = false %}
-                    {% endif %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}{% set include_ok = false %}{% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                    {% set include_ok = true %}
-                    {% endif %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}{% set include_ok = true %}{% endif %}
                   {% endfor %}
                 {% endif %}
               {% endif %}
 
               {% set exclude_hit = false %}
               {% for rx in RXE %}
-                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                {% set exclude_hit = true %}
-                {% endif %}
+                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}{% set exclude_hit = true %}{% endif %}
               {% endfor %}
 
               {{ include_ok and (not exclude_hit) }}
@@ -897,7 +892,7 @@ action:
               {% set Z = final_zones_union | map('lower') | list %}
               {% set logic = (input_zone_logic | lower) %}
 
-              {# Build include/exclude regexes locally #}
+              {# Compile include patterns locally #}
               {% set RXI = [] %}
               {% for p in (zones_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
@@ -906,6 +901,7 @@ action:
                 {% set RXI = RXI + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
               {% endfor %}
 
+              {# Compile exclude patterns locally #}
               {% set RXE = [] %}
               {% for p in (zones_exclude_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
@@ -923,16 +919,12 @@ action:
                 {% if logic == 'all' %}
                   {% set include_ok = True %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
-                    {% set include_ok = False %}
-                    {% endif %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}{% set include_ok = False %}{% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = False %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                    {% set include_ok = True %}
-                    {% endif %}
+                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}{% set include_ok = True %}{% endif %}
                   {% endfor %}
                 {% endif %}
                 {{ include_ok and (not exclude_hit) }}
