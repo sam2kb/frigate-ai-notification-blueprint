@@ -660,7 +660,7 @@ action:
                             title: "{{ title }}"
                             message: "{{ message }}"
                             data:
-                              channel: "{{ camera_name }} Notifications"
+                              channel: "{{ camera_name }} Notifications }}"
                               timeout: "{{ (input_notification_timeout * 60) | int }}"
                               tag: "{{ id }}"
                               group: "{{ camera_name }}"
@@ -689,7 +689,7 @@ action:
                         title: "{{ title }}"
                         message: "{{ message }}"
                         data:
-                          channel: "{{ camera_name }} Notifications"
+                          channel: "{{ camera_name }} Notifications }}"
                           timeout: "{{ (input_notification_timeout * 60) | int }}"
                           tag: "{{ id }}"
                           group: "{{ camera_name }}"
@@ -863,7 +863,7 @@ action:
                 {{ base_message }}
               {% endif %}
 
-            # If this tick is the 'end', compute final match and exit loop immediately
+            # If this tick is the 'end', compute final match
             final_zones_union: >-
               {{ (
                 (event_before.get('entered_zones', []) + event_before.get('current_zones', [])) +
@@ -902,6 +902,7 @@ action:
               {% endfor %}
               {{ include_ok and (not exclude_hit) }}
 
+        # Mark 'ended' and skip rest of this iteration if we saw an end
         - choose:
             - conditions:
                 - condition: template
@@ -919,12 +920,12 @@ action:
                             name: Frigate Notification
                             message: >
                               DEBUG (end seen): id={{ id }} final_zones={{ final_zones_union }} zone_match_final={{ zone_match_final }}
-                - break
 
+        # Only run debug/update notifications for non-end updates
         - choose:
             - conditions:
                 - condition: template
-                  value_template: "{{ input_debug }}"
+                  value_template: "{{ input_debug and event.get('type','update') != 'end' }}"
               sequence:
                 - service: logbook.log
                   data:
@@ -937,14 +938,13 @@ action:
 
         - choose:
             - conditions:
-                # Only notify if material update AND passes zone filter.
-                # Also ignore stationary objects unless there's a new snapshot or sublabel change.
+                # Material update AND passes zone filter, and not an 'end' tick.
                 - condition: template
                   value_template: >-
-                    {{ zone_match_update
-                      and (new_snapshot or sub_label_changed or zones_checked_changed or has_clip_became_true)
-                      and (not is_stationary or new_snapshot or sub_label_changed or zones_checked_changed)
-                    }}
+                    {{ event.get('type','update') != 'end'
+                       and zone_match_update
+                       and (new_snapshot or sub_label_changed or zones_checked_changed or has_clip_became_true)
+                       and (not is_stationary or new_snapshot or sub_label_changed or zones_checked_changed) }}
                 - condition: template
                   value_template: >-
                     {% set ent = (input_cooldown_datetime | default('', true) | string) %}
@@ -1033,9 +1033,7 @@ action:
         - choose:
             - conditions:
                 - condition: template
-                  value_template: "{{ input_debug }}"
-                - condition: template
-                  value_template: "{{ update_sent }}"
+                  value_template: "{{ input_debug and (update_sent | default(false)) }}"
               sequence:
                 - service: logbook.log
                   data:
@@ -1046,7 +1044,7 @@ action:
         - choose:
             - conditions:
                 - condition: template
-                  value_template: "{{ (input_cooldown_datetime | default('', true) | string) | length > 0 }}"
+                  value_template: "{{ (input_cooldown_datetime | default('', true) | string) | length > 0 and (update_sent | default(false)) }}"
               sequence:
                 - service: input_datetime.set_datetime
                   data:
