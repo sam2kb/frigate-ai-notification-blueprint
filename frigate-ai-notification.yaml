@@ -604,6 +604,7 @@ action:
 
       update_thumbnail: true
       alert_once: true
+      ended: false
 
   - condition: template
     value_template: "{{ not labels|length or object in labels }}"
@@ -747,7 +748,7 @@ action:
           timeout: "{{ cooldown_td }}"
           continue_on_timeout: true
 
-        - delay: "00:00:02" # This gives Frigate a beat to populate zones/clip flags before we evaluate.
+        - delay: "00:00:02" # Let Frigate populate zones/clip flags before we evaluate.
 
         - variables:
             event: "{{ wait.trigger.payload_json if wait.trigger else {} }}"
@@ -864,6 +865,64 @@ action:
                 {{ base_message }}
               {% endif %}
 
+            # If this tick is the 'end', compute final match and exit loop immediately
+            final_zones_union: >-
+              {{ (
+                (event_before.get('entered_zones', []) + event_before.get('current_zones', [])) +
+                (event_after.get('entered_zones', []) + event_after.get('current_zones', []))
+              ) | map('lower') | unique | list }}
+
+            zone_match_final: >-
+              {% set Z = final_zones_union %}
+              {% set logic = (input_zone_logic | lower) %}
+              {% set RXI = zones_include_rx %}
+              {% set RXE = zones_exclude_rx %}
+              {% if (zones_filter | length) == 0 %}
+                {% set include_ok = true %}
+              {% else %}
+                {% if logic == 'all' %}
+                  {% set include_ok = true %}
+                  {% for rx in RXI %}
+                    {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
+                      {% set include_ok = false %}
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  {% set include_ok = false %}
+                  {% for rx in RXI %}
+                    {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+                      {% set include_ok = true %}
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
+              {% endif %}
+              {% set exclude_hit = false %}
+              {% for rx in RXE %}
+                {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+                  {% set exclude_hit = true %}
+                {% endif %}
+              {% endfor %}
+              {{ include_ok and (not exclude_hit) }}
+
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ event.get('type') == 'end' }}"
+              sequence:
+                - variables:
+                    ended: true
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ input_debug }}"
+                      sequence:
+                        - service: logbook.log
+                          data:
+                            name: Frigate Notification
+                            message: >
+                              DEBUG (end seen): id={{ id }} final_zones={{ final_zones_union }} zone_match_final={{ zone_match_final }}
+                - break
+
         - choose:
             - conditions:
                 - condition: template
@@ -885,7 +944,7 @@ action:
                 - condition: template
                   value_template: >-
                     {{ zone_match_update
-                      and (new_snapshot or sub_label_changed or zones_checked_changed or has_clip_became_true or (event.get('type') == 'end'))
+                      and (new_snapshot or sub_label_changed or zones_checked_changed or has_clip_became_true)
                       and (not is_stationary or new_snapshot or sub_label_changed or zones_checked_changed)
                     }}
                 - condition: template
@@ -998,7 +1057,69 @@ action:
                     time: "{{ now().strftime('%H:%M:%S') }}"
       until:
         - condition: template
-          value_template: "{{ not wait.trigger or event.get('type') == 'end' }}"
+          value_template: "{{ not wait.trigger or ended }}"
+
+  # Final notification on END (if we exited early and it matches)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ ended | default(false) }}"
+          - condition: template
+            value_template: "{{ zone_match_final | default(false) }}"
+          - condition: template
+            value_template: >-
+              {% set a = trigger.payload_json.get('after', {}) or {} %}
+              {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
+              {% set score_ok = best >= (min_score | float(0)) %}
+              {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
+              {% set fp_ok = (not require_not_false_positive) or (a.get('false_positive') in [false, None]) %}
+              {{ score_ok and clip_ok and fp_ok }}
+          - condition: template
+            value_template: >-
+              {% set ent = (input_cooldown_datetime | default('', true) | string) %}
+              {% if ent|length == 0 %} true
+              {% else %} {{ (as_timestamp(now()) - (state_attr(input_cooldown_datetime, 'timestamp') | int(0))) >= (cooldown_secs | int(0)) }}
+              {% endif %}
+        sequence:
+          - repeat:
+              for_each: "{{ raw_device }}"
+              sequence:
+                - variables:
+                    input_notify_device: >-
+                      {{ 'notify.mobile_app_' ~ (device_attr(repeat.item, 'name') | slugify) }}
+                - service: "{{ input_notify_device }}"
+                  data:
+                    title: "{{ title }}"
+                    message: "{{ message }}"
+                    data:
+                      channel: "{{ camera_name }} Notifications"
+                      timeout: "{{ (input_notification_timeout * 60) | int }}"
+                      tag: "{{ id }}"
+                      group: "{{ camera_name }}"
+                      notification_icon: "{{ icon }}"
+                      data: { ttl: "0", priority: "high" }
+                      attachment: { url: "{{ thumbnail_url }}" }
+                      image: "{{ thumbnail_android_url }}"
+                      clickAction: "{{ clip_url if has_clip else snapshot_url }}"
+                      push: { interruption-level: active }
+                      alert_once: "{{ alert_once }}"
+                      actions:
+                        - action: URI
+                          title: View Clip
+                          uri: "{{ clip_url }}"
+                        - action: URI
+                          title: Open Frigate
+                          uri: "{{ frigate_review_url }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (input_cooldown_datetime | default('', true) | string) | length > 0 }}"
+                sequence:
+                  - service: input_datetime.set_datetime
+                    data:
+                      entity_id: "{{ input_cooldown_datetime }}"
+                      date: "{{ now().strftime('%Y-%m-%d') }}"
+                      time: "{{ now().strftime('%H:%M:%S') }}"
 
   # LLMVision (optional)
   - choose:
@@ -1006,7 +1127,9 @@ action:
           - condition: template
             value_template: "{{ (input_provider | default('', true) | string | trim) != '' }}"
           - condition: template
-            value_template: "{{ zone_match }}"
+            value_template: >-
+              {{ (zone_match is defined and zone_match) or
+                 (zone_match_final is defined and zone_match_final) }}
         sequence:
           - delay: "00:00:30"
 
@@ -1147,8 +1270,6 @@ action:
                               title: Open Frigate
                               uri: "{{ frigate_review_url }}"
           - delay: "{{ cooldown_td }}"
-    default:
-      - delay: "{{ cooldown_td }}"
 
 mode: parallel
 max: 25
