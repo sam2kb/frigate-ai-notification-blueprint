@@ -843,6 +843,7 @@ action:
                 {% set RXE = RXE + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
               {% endfor %}
 
+              {# INCLUDE #}
               {% if (zones_filter | length) == 0 %}
                 {% set include_ok = true %}
               {% else %}
@@ -851,19 +852,28 @@ action:
                 {% elif logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}{% set include_ok = false %}{% endif %}
+                    {% set found = false %}
+                    {% for z in Z %}
+                      {% if z is match(rx, ignorecase=True) %}{% set found = true %}{% endif %}
+                    {% endfor %}
+                    {% if not found %}{% set include_ok = false %}{% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}{% set include_ok = true %}{% endif %}
+                    {% for z in Z %}
+                      {% if z is match(rx, ignorecase=True) %}{% set include_ok = true %}{% endif %}
+                    {% endfor %}
                   {% endfor %}
                 {% endif %}
               {% endif %}
 
+              {# EXCLUDE: any hit blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
-                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}{% set exclude_hit = true %}{% endif %}
+                {% for z in Z %}
+                  {% if z is match(rx, ignorecase=True) %}{% set exclude_hit = true %}{% endif %}
+                {% endfor %}
               {% endfor %}
 
               {{ include_ok and (not exclude_hit) }}
@@ -910,21 +920,32 @@ action:
                 {% set RXE = RXE + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
               {% endfor %}
 
-              {# Exclude first #}
-              {% set exclude_hit = (RXE|length>0) and (Z | select('match', '^(?:' ~ (RXE|join('|')) ~ ')$', ignorecase=True) | list | length > 0) %}
+              {# EXCLUDE first #}
+              {% set exclude_hit = false %}
+              {% for rx in RXE %}
+                {% for z in Z %}
+                  {% if z is match(rx, ignorecase=True) %}{% set exclude_hit = true %}{% endif %}
+                {% endfor %}
+              {% endfor %}
 
               {% if (zones_filter | length) == 0 %}
                 {{ not exclude_hit }}
               {% else %}
                 {% if logic == 'all' %}
-                  {% set include_ok = True %}
+                  {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}{% set include_ok = False %}{% endif %}
+                    {% set found = false %}
+                    {% for z in Z %}
+                      {% if z is match(rx, ignorecase=True) %}{% set found = true %}{% endif %}
+                    {% endfor %}
+                    {% if not found %}{% set include_ok = false %}{% endif %}
                   {% endfor %}
                 {% else %}
-                  {% set include_ok = False %}
+                  {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}{% set include_ok = True %}{% endif %}
+                    {% for z in Z %}
+                      {% if z is match(rx, ignorecase=True) %}{% set include_ok = true %}{% endif %}
+                    {% endfor %}
                   {% endfor %}
                 {% endif %}
                 {{ include_ok and (not exclude_hit) }}
