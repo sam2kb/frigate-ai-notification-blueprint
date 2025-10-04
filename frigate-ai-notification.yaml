@@ -290,16 +290,16 @@ blueprint:
           selector: { boolean: {} }
 
         notification_timeout:
-          name: Notification Timeout (minutes)
-          description: Time before Android automatically clears the notification, default is 10 hours.
-          default: 600
+          name: Notification Timeout (hours)
+          description: Time before Android automatically clears the notification.
+          default: 10
           selector:
             number:
               {
                 min: 1,
-                max: 120,
+                max: 48,
                 step: 1,
-                unit_of_measurement: minutes,
+                unit_of_measurement: hours,
                 mode: slider,
               }
 
@@ -635,7 +635,7 @@ action:
                             message: "{{ message }}"
                             data:
                               channel: "{{ camera_name }} Notifications"
-                              timeout: "{{ (input_notification_timeout * 60) | int }}"
+                              timeout: "{{ input_notification_timeout | int}}"
                               tag: "{{ id }}"
                               group: "{{ camera_name }}"
                               notification_icon: "{{ icon }}"
@@ -664,7 +664,7 @@ action:
                         message: "{{ message }}"
                         data:
                           channel: "{{ camera_name }} Notifications"
-                          timeout: "{{ (input_notification_timeout * 60) | int }}"
+                          timeout: "{{ input_notification_timeout | int }}"
                           tag: "{{ id }}"
                           group: "{{ camera_name }}"
                           notification_icon: "{{ icon }}"
@@ -971,7 +971,7 @@ action:
                                   message: "{{ message }}"
                                   data:
                                     channel: "{{ camera_name }} Notifications"
-                                    timeout: "{{ (input_notification_timeout * 60) | int }}"
+                                    timeout: "{{ input_notification_timeout | int }}"
                                     tag: "{{ id }}"
                                     group: "{{ camera_name }}"
                                     data: { ttl: "0", priority: "high" }
@@ -1000,7 +1000,7 @@ action:
                               message: "{{ message }}"
                               data:
                                 channel: "{{ camera_name }} Notifications"
-                                timeout: "{{ (input_notification_timeout * 60) | int }}"
+                                timeout: "{{ input_notification_timeout | int }}"
                                 tag: "{{ id }}"
                                 group: "{{ camera_name }}"
                                 data: { ttl: "0", priority: "high" }
@@ -1079,7 +1079,7 @@ action:
                     message: "{{ message }}"
                     data:
                       channel: "{{ camera_name }} Notifications"
-                      timeout: "{{ (input_notification_timeout * 60) | int }}"
+                      timeout: "{{ input_notification_timeout | int }}"
                       tag: "{{ id }}"
                       group: "{{ camera_name }}"
                       notification_icon: "{{ icon }}"
@@ -1199,7 +1199,7 @@ action:
                             message: "{{ message }}"
                             data:
                               channel: "{{ camera }}_notifications"
-                              timeout: "{{ (input_notification_timeout * 60) | int }}"
+                              timeout: "{{ input_notification_timeout | int }}"
                               tag: "{{ id }}"
                               group: "{{ camera_name }}"
                               notification_icon: "{{ icon }}"
@@ -1232,7 +1232,7 @@ action:
                         message: "{{ message }}"
                         data:
                           channel: "{{ camera }}_notifications"
-                          timeout: "{{ (input_notification_timeout * 60) | int }}"
+                          timeout: "{{ input_notification_timeout | int }}"
                           tag: "{{ id }}"
                           group: "{{ camera_name }}"
                           notification_icon: "{{ icon }}"
