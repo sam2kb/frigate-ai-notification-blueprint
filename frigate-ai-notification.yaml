@@ -68,16 +68,16 @@ blueprint:
           options: [any, all]
 
     cooldown:
-      name: Cooldown
-      description: The cooldown is a global throttle for a single automation run (per camera/event), and it protects both push notifications and LLM step from firing too often.
-      default: { hours: 0, minutes: 1, seconds: 0 }
+      name: Global Cooldown
+      description: The cooldown is a global throttle for push notifications and LLM step from firing too often. Turning this on will lead to missed/skipped notifications.
+      default: { hours: 0, minutes: 0, seconds: 0 }
       selector:
         duration:
           enable_day: true
 
     cooldown_timestamp:
-      name: Cooldown Helper (optional)
-      description: Recommended datetime helper used to throttle notifications across updates. Open the picker → select "Create" → name it "Frigate Notification Cooldown" → select "Date and Time" → Create.
+      name: Global Cooldown Helper (optional)
+      description: Datetime helper used the global cooldown above. Open the picker → select "Create" → name it "Frigate Notification Cooldown" → select "Date and Time" → Create.
       default: ""
       selector:
         entity:
@@ -567,45 +567,20 @@ action:
         {{ clip_url if has_clip else snapshot_url }}
 
       # Frigate UI /review derivation
-      frigate_base_candidate: >-
-        {% set configured = input_frigate_url | default('', true) | trim %}
-        {% if configured %}
-          {{ configured | regex_replace('/+$', '') }}
-        {% else %}
-          {% set fallback = local_url or base_url %}
-          {% if fallback %}
-            {{ fallback | regex_replace('/+$', '') | regex_replace(':(\\d+)$', '') }}
-          {% else %}
-            {{ '' }}
-          {% endif %}
-        {% endif %}
-      frigate_port_value: >-
-        {% if input_frigate_url | default('', true) | trim %}
-          {{ '' }}
-        {% else %}
-          {% set port = input_frigate_port | int(0) %}
-          {{ port if port > 0 else '' }}
-        {% endif %}
       frigate_review_url: >-
-        {% set base = frigate_base_candidate | trim %}
-        {% if not base %}
-          /api/frigate/review
+        {% set configured = (input_frigate_url | default('', true) | trim) %}
+        {% if configured %}
+          {# Use exactly what the user provided, just normalize slashes and remove any trailing /review #}
+          {% set base = configured | regex_replace('/+$','') | regex_replace('/review$','') %}
+          {{ base }}/review
         {% else %}
-          {% set port = frigate_port_value | trim %}
-          {% if port %}
-            {% if '://' in base %}
-              {% set parts = base.split('://', 1) %}
-              {% set scheme = parts[0] %}
-              {% set rest = parts[1] %}
-              {% set host = rest.split('/', 1)[0] %}
-              {% set suffix = '/' ~ rest.split('/', 1)[1] if '/' in rest else '' %}
-              {% set host_clean = host | regex_replace(':(\\d+)$', '') %}
-              {{ scheme }}://{{ host_clean }}:{{ port }}{{ suffix }}/review
-            {% else %}
-              {{ base | regex_replace(':(\\d+)$', '') }}:{{ port }}/review
-            {% endif %}
+          {# Fall back to HA-proxied Frigate path; prefer absolute if we know the base_url/local_url #}
+          {% if base_url %}
+            {{ base_url }}/api/frigate/review
+          {% elif local_url %}
+            {{ local_url }}/api/frigate/review
           {% else %}
-            {{ base }}/review
+            /api/frigate/review
           {% endif %}
         {% endif %}
 
