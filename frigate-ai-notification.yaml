@@ -455,14 +455,14 @@ action:
           {% elif logic == 'all' %}
             {% set include_ok = true %}
             {% for rx in RXI %}
-              {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
+              {% if (Z | select('match', rx, ignorecase=true) | list | length) == 0 %}
                 {% set include_ok = false %}
               {% endif %}
             {% endfor %}
           {% else %}
             {% set include_ok = false %}
             {% for rx in RXI %}
-              {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+              {% if (Z | select('match', rx, ignorecase=true) | list | length) > 0 %}
                 {% set include_ok = true %}
               {% endif %}
             {% endfor %}
@@ -472,7 +472,7 @@ action:
         {# EXCLUDE: any match blocks #}
         {% set exclude_hit = false %}
         {% for rx in RXE %}
-          {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+          {% if (Z | select('match', rx, ignorecase=true) | list | length) > 0 %}
             {% set exclude_hit = true %}
           {% endif %}
         {% endfor %}
@@ -947,14 +947,14 @@ action:
                 {% if logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
+                    {% if (Z | select('match', rx, ignorecase=true) | list | length) == 0 %}
                       {% set include_ok = false %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
+                    {% if (Z | select('match', rx, ignorecase=true) | list | length) > 0 %}
                       {% set include_ok = true %}
                     {% endif %}
                   {% endfor %}
