@@ -298,8 +298,8 @@ blueprint:
 
         notification_timeout:
           name: Notification Timeout (minutes)
-          description: Time before Android automatically clears the notification
-          default: 10
+          description: Time before Android automatically clears the notification, default is 10 hours.
+          default: 600
           selector:
             number:
               {
@@ -537,7 +537,7 @@ action:
         {{ (value or base_url) | trim | regex_replace('/+$', '') }}
 
       base_title: "{{ label }} detected"
-      base_message: "A {{ label }} was detected on the {{ camera_name }}."
+      base_message: "{{ label }} was detected on the {{ camera_name }}."
       title: "{{ base_title }}"
       message: "{{ base_message }}"
       fps: "{{ states('sensor.' + camera + '_camera_fps') | int(5) }}"
@@ -675,8 +675,8 @@ action:
                               group: "{{ camera_name }}"
                               notification_icon: "{{ icon }}"
                               data: { ttl: "0", priority: "high" }
-                              attachment: { url: "{{ thumbnail_url }}" }
-                              image: "{{ thumbnail_android_url }}"
+                              attachment: { url: "{{ thumbnail_url ~ '?t=' ~ now_ts }}" }
+                              image: "{{ thumbnail_android_url ~ '&t=' ~ now_ts }}"
                               clickAction: "{{ click_target_url }}"
                               push: { interruption-level: active }
                               alert_once: "{{ alert_once }}"
@@ -784,6 +784,7 @@ action:
             has_clip_now: "{{ event_after.get('has_clip', false) }}"
             has_clip_became_true: "{{ (not has_clip_before) and has_clip_now }}"
             click_target_url_update: "{{ clip_url if has_clip_now else snapshot_url }}"
+            thumb_ts_update: "{{ (event_after.get('snapshot_time') or (event_after.get('snapshot', {}).get('frame_time')) or as_timestamp(now())) | int(0) }}"
 
             # --- UPDATE LOOP ZONE MATCH (robust: union of before + after) ---
             current_zones_lower: "{{ (event_after.get('current_zones', []) | map('lower') | list) }}"
@@ -868,6 +869,7 @@ action:
               {% else %}
                 {{ base_title }}
               {% endif %}
+
             message: >-
               {% if sub_label_text %}
                 {{ base_message }} (Updated sub-label: {{ sub_label_text }})
@@ -1009,8 +1011,8 @@ action:
                                     group: "{{ camera_name }}"
                                     data: { ttl: "0", priority: "high" }
                                     notification_icon: "{{ icon }}"
-                                    attachment: { url: "{{ thumbnail_url }}" }
-                                    image: "{{ thumbnail_android_url }}"
+                                    attachment: { url: "{{ thumbnail_url ~ '?t=' ~ thumb_ts_update }}" }
+                                    image: "{{ thumbnail_android_url ~ '&t=' ~ thumb_ts_update }}"
                                     clickAction: "{{ click_target_url_update }}"
                                     push: { interruption-level: active }
                                     alert_once: "{{ alert_once }}"
@@ -1038,8 +1040,8 @@ action:
                                 group: "{{ camera_name }}"
                                 data: { ttl: "0", priority: "high" }
                                 notification_icon: "{{ icon }}"
-                                attachment: { url: "{{ thumbnail_url }}" }
-                                image: "{{ thumbnail_android_url }}"
+                                attachment: { url: "{{ thumbnail_url ~ '?t=' ~ thumb_ts_update }}" }
+                                image: "{{ thumbnail_android_url ~ '&t=' ~ thumb_ts_update }}"
                                 clickAction: "{{ click_target_url_update }}"
                                 push: { interruption-level: active }
                                 alert_once: "{{ alert_once }}"
@@ -1117,8 +1119,8 @@ action:
                       group: "{{ camera_name }}"
                       notification_icon: "{{ icon }}"
                       data: { ttl: "0", priority: "high" }
-                      attachment: { url: "{{ thumbnail_url }}" }
-                      image: "{{ thumbnail_android_url }}"
+                      attachment: { url: "{{ thumbnail_url ~ '?t=' ~ now_ts }}" }
+                      image: "{{ thumbnail_android_url ~ '&t=' ~ now_ts }}"
                       clickAction: "{{ clip_url if (final_has_clip | default(has_clip)) else snapshot_url }}"
                       push: { interruption-level: active }
                       alert_once: "{{ alert_once }}"
@@ -1242,9 +1244,9 @@ action:
                                   {% if input_ios_live_view and (base_url | string | length > 0) %}
                                     {{ clip_url_signed }}
                                   {% else %}
-                                    {{ thumbnail_url }}
+                                    {{ thumbnail_url ~ '?t=' ~ now_ts }}
                                   {% endif %}
-                              image: "{{ thumbnail_android_url }}"
+                              image: "{{ thumbnail_android_url ~ '?t=' ~ now_ts }}"
                               clickAction: "{{ clip_url }}"
                               push: { interruption-level: active }
                               alert_once: "{{ alert_once }}"
@@ -1275,9 +1277,9 @@ action:
                               {% if input_ios_live_view and (base_url | string | length > 0) %}
                                 {{ clip_url_signed }}
                               {% else %}
-                                {{ thumbnail_url }}
+                                {{ thumbnail_url ~ '?t=' ~ now_ts }}
                               {% endif %}
-                          image: "{{ thumbnail_android_url }}"
+                          image: "{{ thumbnail_android_url ~ '?t=' ~ now_ts }}"
                           clickAction: "{{ clip_url }}"
                           push: { interruption-level: active }
                           alert_once: "{{ alert_once }}"
