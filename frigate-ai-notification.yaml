@@ -446,7 +446,15 @@ action:
         {% set RXI = zones_include_rx %}
         {% set RXE = zones_exclude_rx %}
 
-        {# INCLUDE: empty include => true; otherwise enforce only when zones are known #}
+        {# EXCLUDE: any hit blocks #}
+        {% set exclude_hit = false %}
+        {% for rx in RXE %}
+          {% for z in Z %}
+            {% if z | regex_match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
+          {% endfor %}
+        {% endfor %}
+
+        {# INCLUDE #}
         {% if (zones_filter | length) == 0 %}
           {% set include_ok = true %}
         {% else %}
@@ -455,27 +463,22 @@ action:
           {% elif logic == 'all' %}
             {% set include_ok = true %}
             {% for rx in RXI %}
-              {% if (Z | select('match', rx, ignorecase=true) | list | length) == 0 %}
-                {% set include_ok = false %}
-              {% endif %}
+              {% set nsf = namespace(found=false) %}
+              {% for z in Z %}
+                {% if z | regex_match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
+              {% endfor %}
+              {% if not nsf.found %}{% set include_ok = false %}{% endif %}
             {% endfor %}
           {% else %}
-            {% set include_ok = false %}
+            {% set ns_any = namespace(hit=false) %}
             {% for rx in RXI %}
-              {% if (Z | select('match', rx, ignorecase=true) | list | length) > 0 %}
-                {% set include_ok = true %}
-              {% endif %}
+              {% for z in Z %}
+                {% if z | regex_match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
+              {% endfor %}
             {% endfor %}
+            {% set include_ok = ns_any.hit %}
           {% endif %}
         {% endif %}
-
-        {# EXCLUDE: any match blocks #}
-        {% set exclude_hit = false %}
-        {% for rx in RXE %}
-          {% if (Z | select('match', rx, ignorecase=true) | list | length) > 0 %}
-            {% set exclude_hit = true %}
-          {% endif %}
-        {% endfor %}
 
         {{ include_ok and (not exclude_hit) }}
 
@@ -820,34 +823,9 @@ action:
               {% set Z = (event_zones_checked_update | default([], true)) | map('lower') | list %}
               {% set zones_known = Z | length > 0 %}
               {% set logic = (input_zone_logic | lower) %}
+              {% set RXI = zones_include_rx %}
+              {% set RXE = zones_exclude_rx %}
 
-              {# Compile include patterns locally (namespace to persist) #}
-              {% set nsI = namespace(rx=[]) %}
-              {% for p in (zones_filter | default([], true)) %}
-                {% set raw = (p | lower | trim) %}
-                {% if raw %}
-                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
-                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
-                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                  {% set nsI.rx = nsI.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
-                {% endif %}
-              {% endfor %}
-              {% set RXI = nsI.rx %}
-
-              {# Compile exclude patterns locally (namespace) #}
-              {% set nsE = namespace(rx=[]) %}
-              {% for p in (zones_exclude_filter | default([], true)) %}
-                {% set raw = (p | lower | trim) %}
-                {% if raw %}
-                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
-                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
-                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                  {% set nsE.rx = nsE.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
-                {% endif %}
-              {% endfor %}
-              {% set RXE = nsE.rx %}
-
-              {# INCLUDE #}
               {% if (zones_filter | length) == 0 %}
                 {% set include_ok = true %}
               {% else %}
@@ -873,7 +851,6 @@ action:
                 {% endif %}
               {% endif %}
 
-              {# EXCLUDE: any hit blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
                 {% for z in Z %}
@@ -906,34 +883,9 @@ action:
             zone_match_final: >-
               {% set Z = final_zones_union | map('lower') | list %}
               {% set logic = (input_zone_logic | lower) %}
+              {% set RXI = zones_include_rx %}
+              {% set RXE = zones_exclude_rx %}
 
-              {# Compile include patterns locally #}
-              {% set nsI = namespace(rx=[]) %}
-              {% for p in (zones_filter | default([], true)) %}
-                {% set raw = (p | lower | trim) %}
-                {% if raw %}
-                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
-                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
-                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                  {% set nsI.rx = nsI.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
-                {% endif %}
-              {% endfor %}
-              {% set RXI = nsI.rx %}
-
-              {# Compile exclude patterns locally #}
-              {% set nsE = namespace(rx=[]) %}
-              {% for p in (zones_exclude_filter | default([], true)) %}
-                {% set raw = (p | lower | trim) %}
-                {% if raw %}
-                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
-                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
-                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                  {% set nsE.rx = nsE.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
-                {% endif %}
-              {% endfor %}
-              {% set RXE = nsE.rx %}
-
-              {# Exclude first: any hit blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
                 {% for z in Z %}
@@ -947,17 +899,20 @@ action:
                 {% if logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=true) | list | length) == 0 %}
-                      {% set include_ok = false %}
-                    {% endif %}
+                    {% set nsf = namespace(found=false) %}
+                    {% for z in Z %}
+                      {% if z | regex_match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
+                    {% endfor %}
+                    {% if not nsf.found %}{% set include_ok = false %}{% endif %}
                   {% endfor %}
                 {% else %}
-                  {% set include_ok = false %}
+                  {% set ns_any = namespace(hit=false) %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=true) | list | length) > 0 %}
-                      {% set include_ok = true %}
-                    {% endif %}
+                    {% for z in Z %}
+                      {% if z | regex_match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
+                    {% endfor %}
                   {% endfor %}
+                  {% set include_ok = ns_any.hit %}
                 {% endif %}
                 {{ include_ok and (not exclude_hit) }}
               {% endif %}
@@ -982,8 +937,8 @@ action:
                             message: >
                               DEBUG (end seen): id={{ id }}
                               final_zones={{ final_zones_union }}
-                              inc_raw={{ zones_filter }} RXI_local={{ RXI }}
-                              exc_raw={{ zones_exclude_filter }} RXE_local={{ RXE }}
+                              inc_raw={{ zones_filter }} RXI_dbg={{ zones_include_rx }}
+                              exc_raw={{ zones_exclude_filter }} RXE_dbg={{ zones_exclude_rx }}
                               zone_match_final={{ zone_match_final }}
 
         # Only run debug/update notifications for non-end updates
@@ -1098,7 +1053,7 @@ action:
         - choose:
             - conditions:
                 - condition: template
-                  value_template: "{{ input_debug and (update_sent | default(false)) }}"
+                  value_template: "{{ input_debug and event.get('type','update') != 'end' and (update_sent | default(false)) }}"
               sequence:
                 - service: logbook.log
                   data:
