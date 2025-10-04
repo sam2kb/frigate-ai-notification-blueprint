@@ -279,16 +279,9 @@ blueprint:
 
         frigate_url:
           name: Frigate Instance URL
-          description: Base URL for Frigate web UI (omit trailing /review). Leave empty to derive automatically.
+          description: Optional. Full base URL to your Frigate UI (include port if needed), e.g. https://frigate.lan:8971
           default: ""
           selector: { text: {} }
-
-        frigate_port:
-          name: Frigate UI Port
-          description: Used when deriving the Frigate UI link if no instance URL is provided. Set to 0 to skip adding a port.
-          default: 8971
-          selector:
-            number: { min: 0, max: 65535, step: 1 }
 
         debug:
           name: Debugging
@@ -356,7 +349,6 @@ action:
       input_base_url: !input base_url
       input_local_url: !input local_url
       input_frigate_url: !input frigate_url
-      input_frigate_port: !input frigate_port
       input_cooldown_datetime: !input cooldown_timestamp
       ha_external_url: "{{ state_attr('homeassistant', 'external_url') | default('', true) | trim }}"
       ha_internal_url: "{{ state_attr('homeassistant', 'internal_url') | default('', true) | trim }}"
@@ -570,11 +562,9 @@ action:
       frigate_review_url: >-
         {% set configured = (input_frigate_url | default('', true) | trim) %}
         {% if configured %}
-          {# Use exactly what the user provided, just normalize slashes and remove any trailing /review #}
           {% set base = configured | regex_replace('/+$','') | regex_replace('/review$','') %}
           {{ base }}/review
         {% else %}
-          {# Fall back to HA-proxied Frigate path; prefer absolute if we know the base_url/local_url #}
           {% if base_url %}
             {{ base_url }}/api/frigate/review
           {% elif local_url %}
