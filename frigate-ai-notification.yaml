@@ -507,6 +507,9 @@ action:
            + (d.get('seconds',0) | int(0)) }}
       last_notification_ts: "{{ state_attr(input_cooldown_datetime, 'timestamp') | default(0) }}"
       now_ts: "{{ as_timestamp(now()) | int(0) }}"
+      timeout_secs: >-
+        {{ ((input_notification_timeout | float) * 3600) | int }}
+
       cooldown_active: >-
         {% set ent = (input_cooldown_datetime | default('', true) | string) %}
         {% if ent|length == 0 %}
@@ -635,7 +638,7 @@ action:
                             message: "{{ message }}"
                             data:
                               channel: "{{ camera_name }} Notifications"
-                              timeout: "{{ input_notification_timeout | int}}"
+                              timeout: "{{ timeout_secs }}"
                               tag: "{{ id }}"
                               group: "{{ camera_name }}"
                               notification_icon: "{{ icon }}"
@@ -664,7 +667,7 @@ action:
                         message: "{{ message }}"
                         data:
                           channel: "{{ camera_name }} Notifications"
-                          timeout: "{{ input_notification_timeout | int }}"
+                          timeout: "{{ timeout_secs }}"
                           tag: "{{ id }}"
                           group: "{{ camera_name }}"
                           notification_icon: "{{ icon }}"
@@ -971,7 +974,7 @@ action:
                                   message: "{{ message }}"
                                   data:
                                     channel: "{{ camera_name }} Notifications"
-                                    timeout: "{{ input_notification_timeout | int }}"
+                                    timeout: "{{ timeout_secs }}"
                                     tag: "{{ id }}"
                                     group: "{{ camera_name }}"
                                     data: { ttl: "0", priority: "high" }
@@ -1000,7 +1003,7 @@ action:
                               message: "{{ message }}"
                               data:
                                 channel: "{{ camera_name }} Notifications"
-                                timeout: "{{ input_notification_timeout | int }}"
+                                timeout: "{{ timeout_secs }}"
                                 tag: "{{ id }}"
                                 group: "{{ camera_name }}"
                                 data: { ttl: "0", priority: "high" }
@@ -1079,7 +1082,7 @@ action:
                     message: "{{ message }}"
                     data:
                       channel: "{{ camera_name }} Notifications"
-                      timeout: "{{ input_notification_timeout | int }}"
+                      timeout: "{{ timeout_secs }}"
                       tag: "{{ id }}"
                       group: "{{ camera_name }}"
                       notification_icon: "{{ icon }}"
@@ -1199,7 +1202,7 @@ action:
                             message: "{{ message }}"
                             data:
                               channel: "{{ camera }}_notifications"
-                              timeout: "{{ input_notification_timeout | int }}"
+                              timeout: "{{ timeout_secs }}"
                               tag: "{{ id }}"
                               group: "{{ camera_name }}"
                               notification_icon: "{{ icon }}"
@@ -1232,7 +1235,7 @@ action:
                         message: "{{ message }}"
                         data:
                           channel: "{{ camera }}_notifications"
-                          timeout: "{{ input_notification_timeout | int }}"
+                          timeout: "{{ timeout_secs }}"
                           tag: "{{ id }}"
                           group: "{{ camera_name }}"
                           notification_icon: "{{ icon }}"
