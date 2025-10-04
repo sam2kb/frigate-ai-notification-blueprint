@@ -395,38 +395,34 @@ action:
         {% set z = (input_zones_exclude | default('', true) | string) %}
         {{ z.split(',') | map('trim') | select('ne','') | map('lower') | list }}
 
-      # Compile wildcard -> regex for include/exclude
+      # Compile wildcard -> regex for include/exclude (use namespace to persist across loop)
       zones_include_rx: >-
-        {% set rx = [] %}
+        {% set ns = namespace(rx=[]) %}
         {% for p in (zones_filter | default([], true)) %}
           {% set raw = (p | lower | trim) %}
-          {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-          {% set body = raw
-            | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1')
-            | replace('*','.*')
-            | replace('?','.')
-          %}
-          {% set body = ('.*' ~ body ~ '.*') if not has_wc else body %}
-          {% set pat = '^' ~ body ~ '$' %}
-          {% set rx = rx + [pat] %}
+          {% if raw %}
+            {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
+            {% set body = escaped | replace('*','.*') | replace('?','.') %}
+            {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+            {% set body = ('.*' ~ body ~ '.*') if not has_wc else body %}
+            {% set ns.rx = ns.rx + ['^' ~ body ~ '$'] %}
+          {% endif %}
         {% endfor %}
-        {{ rx }}
+        {{ ns.rx }}
 
       zones_exclude_rx: >-
-        {% set rx = [] %}
+        {% set ns = namespace(rx=[]) %}
         {% for p in (zones_exclude_filter | default([], true)) %}
           {% set raw = (p | lower | trim) %}
-          {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-          {% set body = raw
-            | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1')
-            | replace('*','.*')
-            | replace('?','.')
-          %}
-          {% set body = ('.*' ~ body ~ '.*') if not has_wc else body %}
-          {% set pat = '^' ~ body ~ '$' %}
-          {% set rx = rx + [pat] %}
+          {% if raw %}
+            {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
+            {% set body = escaped | replace('*','.*') | replace('?','.') %}
+            {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+            {% set body = ('.*' ~ body ~ '.*') if not has_wc else body %}
+            {% set ns.rx = ns.rx + ['^' ~ body ~ '$'] %}
+          {% endif %}
         {% endfor %}
-        {{ rx }}
+        {{ ns.rx }}
 
       # Event zones (same as before)
       event_zones_entered: >-
@@ -459,14 +455,14 @@ action:
           {% elif logic == 'all' %}
             {% set include_ok = true %}
             {% for rx in RXI %}
-              {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
+              {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
                 {% set include_ok = false %}
               {% endif %}
             {% endfor %}
           {% else %}
             {% set include_ok = false %}
             {% for rx in RXI %}
-              {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
+              {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
                 {% set include_ok = true %}
               {% endif %}
             {% endfor %}
@@ -476,7 +472,7 @@ action:
         {# EXCLUDE: any match blocks #}
         {% set exclude_hit = false %}
         {% for rx in RXE %}
-          {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
+          {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
             {% set exclude_hit = true %}
           {% endif %}
         {% endfor %}
@@ -825,23 +821,31 @@ action:
               {% set zones_known = Z | length > 0 %}
               {% set logic = (input_zone_logic | lower) %}
 
-              {# Compile include patterns locally #}
-              {% set RXI = [] %}
+              {# Compile include patterns locally (namespace to persist) #}
+              {% set nsI = namespace(rx=[]) %}
               {% for p in (zones_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
-                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
-                {% set RXI = RXI + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% if raw %}
+                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
+                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
+                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                  {% set nsI.rx = nsI.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% endif %}
               {% endfor %}
+              {% set RXI = nsI.rx %}
 
-              {# Compile exclude patterns locally #}
-              {% set RXE = [] %}
+              {# Compile exclude patterns locally (namespace) #}
+              {% set nsE = namespace(rx=[]) %}
               {% for p in (zones_exclude_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
-                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
-                {% set RXE = RXE + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% if raw %}
+                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
+                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
+                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                  {% set nsE.rx = nsE.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% endif %}
               {% endfor %}
+              {% set RXE = nsE.rx %}
 
               {# INCLUDE #}
               {% if (zones_filter | length) == 0 %}
@@ -852,19 +856,20 @@ action:
                 {% elif logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% set found = false %}
+                    {% set nsf = namespace(found=false) %}
                     {% for z in Z %}
-                      {% if z is match(rx, ignorecase=True) %}{% set found = true %}{% endif %}
+                      {% if z | regex_match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
                     {% endfor %}
-                    {% if not found %}{% set include_ok = false %}{% endif %}
+                    {% if not nsf.found %}{% set include_ok = false %}{% endif %}
                   {% endfor %}
                 {% else %}
-                  {% set include_ok = false %}
+                  {% set ns_any = namespace(hit=false) %}
                   {% for rx in RXI %}
                     {% for z in Z %}
-                      {% if z is match(rx, ignorecase=True) %}{% set include_ok = true %}{% endif %}
+                      {% if z | regex_match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
                     {% endfor %}
                   {% endfor %}
+                  {% set include_ok = ns_any.hit %}
                 {% endif %}
               {% endif %}
 
@@ -872,7 +877,7 @@ action:
               {% set exclude_hit = false %}
               {% for rx in RXE %}
                 {% for z in Z %}
-                  {% if z is match(rx, ignorecase=True) %}{% set exclude_hit = true %}{% endif %}
+                  {% if z | regex_match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
                 {% endfor %}
               {% endfor %}
 
@@ -903,29 +908,37 @@ action:
               {% set logic = (input_zone_logic | lower) %}
 
               {# Compile include patterns locally #}
-              {% set RXI = [] %}
+              {% set nsI = namespace(rx=[]) %}
               {% for p in (zones_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
-                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
-                {% set RXI = RXI + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% if raw %}
+                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
+                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
+                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                  {% set nsI.rx = nsI.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% endif %}
               {% endfor %}
+              {% set RXI = nsI.rx %}
 
               {# Compile exclude patterns locally #}
-              {% set RXE = [] %}
+              {% set nsE = namespace(rx=[]) %}
               {% for p in (zones_exclude_filter | default([], true)) %}
                 {% set raw = (p | lower | trim) %}
-                {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
-                {% set body = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') | replace('*','.*') | replace('?','.') %}
-                {% set RXE = RXE + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% if raw %}
+                  {% set escaped = raw | regex_replace('([.^$+{}()|\\[\\]\\\\])','\\\\\\1') %}
+                  {% set body = escaped | replace('*','.*') | replace('?','.') %}
+                  {% set has_wc = ('*' in raw) or ('?' in raw) or ('^' in raw) or ('$' in raw) %}
+                  {% set nsE.rx = nsE.rx + ['^' ~ (('.*' ~ body ~ '.*') if not has_wc else body) ~ '$'] %}
+                {% endif %}
               {% endfor %}
+              {% set RXE = nsE.rx %}
 
               {# Exclude first: any hit blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
-                {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
-                  {% set exclude_hit = true %}
-                {% endif %}
+                {% for z in Z %}
+                  {% if z | regex_match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
+                {% endfor %}
               {% endfor %}
 
               {% if (zones_filter | length) == 0 %}
@@ -934,14 +947,14 @@ action:
                 {% if logic == 'all' %}
                   {% set include_ok = true %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) == 0 %}
+                    {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) == 0 %}
                       {% set include_ok = false %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
                   {% set include_ok = false %}
                   {% for rx in RXI %}
-                    {% if (Z | select('match', rx, ignorecase=True) | list | length) > 0 %}
+                    {% if (Z | select('regex_match', rx, ignorecase=true) | list | length) > 0 %}
                       {% set include_ok = true %}
                     {% endif %}
                   {% endfor %}
