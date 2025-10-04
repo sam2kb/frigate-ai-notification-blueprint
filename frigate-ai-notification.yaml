@@ -509,6 +509,14 @@ action:
       now_ts: "{{ as_timestamp(now()) | int(0) }}"
       timeout_secs: >-
         {{ ((input_notification_timeout | float) * 3600) | int }}
+      
+      update_timeout_secs: >-
+        {{ [cooldown_secs | int, 30] | max }}  # at least 30s
+      update_timeout_str: >-
+        {{ '%02d:%02d:%02d' | format(
+             (update_timeout_secs // 3600) | int,
+             ((update_timeout_secs % 3600) // 60) | int,
+             (update_timeout_secs % 60) | int) }}
 
       cooldown_active: >-
         {% set ent = (input_cooldown_datetime | default('', true) | string) %}
@@ -720,7 +728,7 @@ action:
               value_template: >
                 {{ value_json['after']['id'] if value_json.get('after') is not none else value_json.get('before', {}).get('id') }}
               payload: "{{ id }}"
-          timeout: "{{ cooldown_td }}"
+          timeout: "{{ update_timeout_str  }}"
           continue_on_timeout: true
 
         - delay: "00:00:02" # Let Frigate populate zones/clip flags before we evaluate.
