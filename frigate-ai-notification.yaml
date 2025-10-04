@@ -826,6 +826,7 @@ action:
               {% set RXI = zones_include_rx %}
               {% set RXE = zones_exclude_rx %}
 
+              {# INCLUDE #}
               {% if (zones_filter | length) == 0 %}
                 {% set include_ok = true %}
               {% else %}
@@ -836,7 +837,7 @@ action:
                   {% for rx in RXI %}
                     {% set nsf = namespace(found=false) %}
                     {% for z in Z %}
-                      {% if z | regex_match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
+                      {% if z is match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
                     {% endfor %}
                     {% if not nsf.found %}{% set include_ok = false %}{% endif %}
                   {% endfor %}
@@ -844,17 +845,18 @@ action:
                   {% set ns_any = namespace(hit=false) %}
                   {% for rx in RXI %}
                     {% for z in Z %}
-                      {% if z | regex_match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
+                      {% if z is match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
                     {% endfor %}
                   {% endfor %}
                   {% set include_ok = ns_any.hit %}
                 {% endif %}
               {% endif %}
 
+              {# EXCLUDE: any hit blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
                 {% for z in Z %}
-                  {% if z | regex_match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
+                  {% if z is match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
                 {% endfor %}
               {% endfor %}
 
@@ -886,10 +888,11 @@ action:
               {% set RXI = zones_include_rx %}
               {% set RXE = zones_exclude_rx %}
 
+              {# EXCLUDE first: any hit blocks #}
               {% set exclude_hit = false %}
               {% for rx in RXE %}
                 {% for z in Z %}
-                  {% if z | regex_match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
+                  {% if z is match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
                 {% endfor %}
               {% endfor %}
 
@@ -901,7 +904,7 @@ action:
                   {% for rx in RXI %}
                     {% set nsf = namespace(found=false) %}
                     {% for z in Z %}
-                      {% if z | regex_match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
+                      {% if z is match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
                     {% endfor %}
                     {% if not nsf.found %}{% set include_ok = false %}{% endif %}
                   {% endfor %}
@@ -909,7 +912,7 @@ action:
                   {% set ns_any = namespace(hit=false) %}
                   {% for rx in RXI %}
                     {% for z in Z %}
-                      {% if z | regex_match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
+                      {% if z is match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
                     {% endfor %}
                   {% endfor %}
                   {% set include_ok = ns_any.hit %}
