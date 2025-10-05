@@ -510,14 +510,6 @@ action:
       timeout_secs: >-
         {{ ((input_notification_timeout | float) * 3600) | int }}
       
-      update_timeout_secs: >-
-        {{ [cooldown_secs | int, 30] | max }}  # at least 30s
-      update_timeout_str: >-
-        {{ '%02d:%02d:%02d' | format(
-             (update_timeout_secs // 3600) | int,
-             ((update_timeout_secs % 3600) // 60) | int,
-             (update_timeout_secs % 60) | int) }}
-
       cooldown_active: >-
         {% set ent = (input_cooldown_datetime | default('', true) | string) %}
         {% if ent|length == 0 %}
@@ -728,7 +720,14 @@ action:
               value_template: >
                 {{ value_json['after']['id'] if value_json.get('after') is not none else value_json.get('before', {}).get('id') }}
               payload: "{{ id }}"
-          timeout: "{{ update_timeout_str  }}"
+          timeout: >-
+            {% set base = cooldown_secs | int(0) %}
+            {% set uts = [base, 30] | max %}
+            {{ '%02d:%02d:%02d' | format(
+                (uts // 3600),
+                ((uts % 3600) // 60),
+                (uts % 60)
+            ) }}
           continue_on_timeout: true
 
         - delay: "00:00:02" # Let Frigate populate zones/clip flags before we evaluate.
