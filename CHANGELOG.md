@@ -2,8 +2,11 @@
 
 All notable changes to this project will be documented here.
 
-## [0.3.0] - 2025-10-05
+## [0.3.1] - 2025-10-05
+- Hardcoded 30s per-camera cooldown after a push - writes to silence table if set.
+- Notification tags: initial + updates use `tag: camera` to collapse per camera; final END uses `tag: id` to retain one card per event.
 
+## [0.3.0] - 2025-10-05
 ### Added
 - **iOS HLS live view**: when *iOS Notification* is enabled, notifications use the `.m3u8` stream where possible. Falls back to snapshot if a signed clip URL isn’t available.
 - **“View Live” action**: opens the camera entity in the HA app (`entityId:camera.<slug>`). Included on initial, update, end, and LLMVision notifications.

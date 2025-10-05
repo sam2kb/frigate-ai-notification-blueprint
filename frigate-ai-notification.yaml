@@ -1010,7 +1010,7 @@ action:
                     data:
                       channel: "{{ camera_name }} Notifications"
                       timeout: "{{ timeout_secs }}"
-                      tag: "{{ tag_key }}"
+                      tag: "{{ id }}"          # END uses event id, not camera, to keep a final card per event
                       group: "{{ camera_name }}"
                       notification_icon: "{{ icon }}"
                       data: { ttl: "0", priority: "high" }
