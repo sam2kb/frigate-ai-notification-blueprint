@@ -881,9 +881,9 @@ action:
                 - condition: template
                   value_template: >-
                     {{ event.get('type','update') != 'end'
-                       and zone_match_update
-                       and (new_snapshot or sub_label_changed or zones_checked_changed or has_clip_became_true)
-                       and (not is_stationary or new_snapshot or sub_label_changed or zones_checked_changed) }}
+                      and zone_match_update
+                      and (has_clip_became_true or sub_label_changed or zones_checked_changed)
+                      and (not is_stationary or sub_label_changed or zones_checked_changed) }}
                 - condition: template
                   value_template: >-
                     {% set ent = (input_cooldown_datetime | default('', true) | string) %}
