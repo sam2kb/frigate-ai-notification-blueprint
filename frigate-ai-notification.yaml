@@ -366,7 +366,11 @@ action:
       input_frigate_url: !input frigate_url
       input_cooldown_datetime: !input cooldown_timestamp
       input_silence_table: !input silence_table
+
       silence_table_enabled: "{{ (input_silence_table | string) | length > 0 }}"
+      silence_raw: "{{ states(input_silence_table) if input_silence_table else '' }}"
+      silence_raw_norm: "{{ (silence_raw | default('', true) | trim) }}"
+      silence_is_empty: "{{ silence_raw_norm in ['', 'unknown', 'unavailable'] }}"
       ha_external_url: "{{ state_attr('homeassistant', 'external_url') | default('', true) | trim }}"
       ha_internal_url: "{{ state_attr('homeassistant', 'internal_url') | default('', true) | trim }}"
       input_labels: !input labels
@@ -568,14 +572,27 @@ action:
       alert_once: true
       ended: false
 
-      # per-camera silence (evaluated at trigger time)
       camera_silenced: >-
-        {% if not silence_table_enabled %}false{% else %}
-        {% set raw = states(input_silence_table) | default('{}', true) %}
-        {% set m = raw | from_json %}
-        {% set until = (m.get(camera) | default(0)) | int(0) %}
-        {{ now_ts < until }}
+        {% if not silence_table_enabled %}
+          false
+        {% else %}
+          {% set raw0 = states(input_silence_table) %}
+          {% set raw  = (raw0 | default('', true) | trim | replace("'", '"')) %}
+          {% set raw  = '{}' if raw in ['', 'unknown', 'unavailable'] else raw %}
+          {% set m    = raw | from_json %}
+          {% set until = (m.get(camera) | default(0)) | int(0) %}
+          {{ now_ts < until }}
         {% endif %}
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ silence_table_enabled and silence_is_empty }}"
+        sequence:
+          - service: input_text.set_value
+            data:
+              entity_id: "{{ input_silence_table }}"
+              value: "{}"
 
   - condition: template
     value_template: "{{ not labels|length or object in labels }}"
