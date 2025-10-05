@@ -318,6 +318,9 @@ trigger:
     topic: frigate/events
     value_template: "{{ value_json['type'] }}"
     payload: "new"
+  - trigger: event
+    event_type: mobile_app_notification_action
+    id: mobile-action
 
 condition: []
 
@@ -554,18 +557,32 @@ action:
         {{ (base_url ~ thumbnail_path) if base_url else thumbnail_path }}
       thumbnail_android_url: >-
         {{ thumbnail_url ~ '?format=android' }}
+      video_ios: "/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8"
+      live_deeplink: "entityId: camera.{{ camera }}"
 
       # Clip readiness and click target (fallback to snapshot when clip isn't ready yet)
       has_clip: >-
         {{ (trigger.payload_json.get('after') or {}).get('has_clip', false) }}
       click_target_url: >-
         {{ clip_url if has_clip else snapshot_url }}
+      ios_click_target_url: >-
+        {% if input_ios_live_view %}
+          {{ video_ios if has_clip else snapshot_url }}
+        {% else %}
+          {{ click_target_url }}
+        {% endif %}
+      view_clip_uri_initial: >-
+        {% if input_ios_live_view %}
+          {{ video_ios if has_clip else clip_url }}
+        {% else %}
+          {{ clip_url }}
+        {% endif %}
 
       # Frigate UI /review derivation
       frigate_review_url: >-
-        {% set base = (input_frigate_url | default('', true) | trim) %}
-        {% if base %}
-          {{ base | regex_replace('/+$','') }}/review?camera={{ camera }}&id={{ id }}
+        {% set configured = (input_frigate_url | default('', true) | trim) %}
+        {% if configured %}
+          {{ configured | regex_replace('/+$','') | regex_replace('/review$','') }}/review?camera={{ camera }}&id={{ id }}
         {% else %}
           {% if base_url %}
             {{ base_url }}/api/frigate/review?camera={{ camera }}&id={{ id }}
@@ -645,19 +662,25 @@ action:
                               data: { ttl: "0", priority: "high" }
                               attachment: { url: "{{ thumbnail_url ~ '?t=' ~ now_ts }}" }
                               image: "{{ thumbnail_android_url ~ '&t=' ~ now_ts }}"
-                              clickAction: "{{ click_target_url }}"
+                              clickAction: "{{ ios_click_target_url }}"
                               push: { interruption-level: active }
                               alert_once: "{{ alert_once }}"
                               actions:
                                 - action: URI
                                   title: View Clip
-                                  uri: "{{ clip_url }}"
+                                  uri: "{{ view_clip_uri_initial }}"
                                 - action: URI
                                   title: View Summary
                                   uri: "{{ input_dashboard }}"
                                 - action: URI
                                   title: Open Frigate
                                   uri: "{{ frigate_review_url }}"
+                                - action: URI
+                                  title: View Live
+                                  uri: "{{ live_deeplink }}"
+                                - action: "SILENCE_{{ this.entity_id }}"
+                                  title: Silence
+                                  behavior: textInput
                         - variables:
                             initial_sent: true
                   default:
@@ -674,16 +697,22 @@ action:
                           data: { ttl: "0", priority: "high" }
                           attachment: { url: "{{ thumbnail_url }}" }
                           image: "{{ thumbnail_android_url }}"
-                          clickAction: "{{ click_target_url }}"
+                          clickAction: "{{ ios_click_target_url }}"
                           push: { interruption-level: active }
                           alert_once: "{{ alert_once }}"
                           actions:
                             - action: URI
                               title: View Clip
-                              uri: "{{ clip_url }}"
+                              uri: "{{ view_clip_uri_initial }}"
                             - action: URI
                               title: Open Frigate
                               uri: "{{ frigate_review_url }}"
+                            - action: URI
+                              title: View Live
+                              uri: "{{ live_deeplink }}"
+                            - action: "SILENCE_{{ this.entity_id }}"
+                              title: Silence
+                              behavior: textInput
                     - variables:
                         initial_sent: true
 
@@ -759,6 +788,19 @@ action:
             has_clip_now: "{{ event_after.get('has_clip', false) }}"
             has_clip_became_true: "{{ (not has_clip_before) and has_clip_now }}"
             click_target_url_update: "{{ clip_url if has_clip_now else snapshot_url }}"
+            # iOS-aware update click target + view-clip uri
+            click_target_url_update_ios: >-
+              {% if input_ios_live_view %}
+                {{ video_ios if has_clip_now else snapshot_url }}
+              {% else %}
+                {{ click_target_url_update }}
+              {% endif %}
+            view_clip_uri_update: >-
+              {% if input_ios_live_view %}
+                {{ video_ios if has_clip_now else clip_url }}
+              {% else %}
+                {{ clip_url }}
+              {% endif %}
             thumb_ts_update: "{{ (event_after.get('snapshot_time') or (event_after.get('snapshot', {}).get('frame_time')) or as_timestamp(now())) | int(0) }}"
 
             # --- UPDATE LOOP ZONE MATCH (robust: union of before + after) ---
@@ -988,19 +1030,25 @@ action:
                                     notification_icon: "{{ icon }}"
                                     attachment: { url: "{{ thumbnail_url ~ '?t=' ~ thumb_ts_update }}" }
                                     image: "{{ thumbnail_android_url ~ '&t=' ~ thumb_ts_update }}"
-                                    clickAction: "{{ click_target_url_update }}"
+                                    clickAction: "{{ click_target_url_update_ios }}"
                                     push: { interruption-level: active }
                                     alert_once: "{{ alert_once }}"
                                     actions:
                                       - action: URI
                                         title: View Clip
-                                        uri: "{{ clip_url }}"
+                                        uri: "{{ view_clip_uri_update }}"
                                       - action: URI
                                         title: View Summary
                                         uri: "{{ input_dashboard }}"
                                       - action: URI
                                         title: Open Frigate
                                         uri: "{{ frigate_review_url }}"
+                                      - action: URI
+                                        title: View Live
+                                        uri: "{{ live_deeplink }}"
+                                      - action: "SILENCE_{{ this.entity_id }}"
+                                        title: Silence
+                                        behavior: textInput
                               - variables:
                                   update_sent: true
                         default:
@@ -1017,16 +1065,22 @@ action:
                                 notification_icon: "{{ icon }}"
                                 attachment: { url: "{{ thumbnail_url ~ '?t=' ~ thumb_ts_update }}" }
                                 image: "{{ thumbnail_android_url ~ '&t=' ~ thumb_ts_update }}"
-                                clickAction: "{{ click_target_url_update }}"
+                                clickAction: "{{ click_target_url_update_ios }}"
                                 push: { interruption-level: active }
                                 alert_once: "{{ alert_once }}"
                                 actions:
                                   - action: URI
                                     title: View Clip
-                                    uri: "{{ clip_url }}"
+                                    uri: "{{ view_clip_uri_update }}"
                                   - action: URI
                                     title: Open Frigate
                                     uri: "{{ frigate_review_url }}"
+                                  - action: URI
+                                    title: View Live
+                                    uri: "{{ live_deeplink }}"
+                                  - action: "SILENCE_{{ this.entity_id }}"
+                                    title: Silence
+                                    behavior: textInput
                           - variables:
                               update_sent: true
 
@@ -1096,16 +1150,34 @@ action:
                       data: { ttl: "0", priority: "high" }
                       attachment: { url: "{{ thumbnail_url ~ '?t=' ~ now_ts }}" }
                       image: "{{ thumbnail_android_url ~ '&t=' ~ now_ts }}"
-                      clickAction: "{{ clip_url if (final_has_clip | default(has_clip)) else snapshot_url }}"
+                      clickAction: >-
+                        {% set has = (final_has_clip | default(has_clip)) %}
+                        {% if input_ios_live_view %}
+                          {{ video_ios if has else snapshot_url }}
+                        {% else %}
+                          {{ clip_url if has else snapshot_url }}
+                        {% endif %}
                       push: { interruption-level: active }
                       alert_once: "{{ alert_once }}"
                       actions:
                         - action: URI
                           title: View Clip
-                          uri: "{{ clip_url }}"
+                          uri: >-
+                            {% set has = (final_has_clip | default(has_clip)) %}
+                            {% if input_ios_live_view %}
+                              {{ video_ios if has else clip_url }}
+                            {% else %}
+                              {{ clip_url }}
+                            {% endif %}
                         - action: URI
                           title: Open Frigate
                           uri: "{{ frigate_review_url }}"
+                        - action: URI
+                          title: View Live
+                          uri: "{{ live_deeplink }}"
+                        - action: "SILENCE_{{ this.entity_id }}"
+                          title: Silence
+                          behavior: textInput
           - choose:
               - conditions:
                   - condition: template
@@ -1222,19 +1294,25 @@ action:
                                     {{ thumbnail_url ~ '?t=' ~ now_ts }}
                                   {% endif %}
                               image: "{{ thumbnail_android_url ~ '?t=' ~ now_ts }}"
-                              clickAction: "{{ clip_url }}"
+                              clickAction: "{{ (video_ios if input_ios_live_view else clip_url) }}"
                               push: { interruption-level: active }
                               alert_once: "{{ alert_once }}"
                               actions:
                                 - action: URI
                                   title: View Clip
-                                  uri: "{{ clip_url }}"
+                                  uri: "{{ (video_ios if input_ios_live_view else clip_url) }}"
                                 - action: URI
                                   title: View Summary
                                   uri: "{{ input_dashboard }}"
                                 - action: URI
                                   title: Open Frigate
                                   uri: "{{ frigate_review_url }}"
+                                - action: URI
+                                  title: View Live
+                                  uri: "{{ live_deeplink }}"
+                                - action: "SILENCE_{{ this.entity_id }}"
+                                  title: Silence
+                                  behavior: textInput
                   default:
                     - service: "{{ input_notify_device }}"
                       data:
@@ -1255,17 +1333,53 @@ action:
                                 {{ thumbnail_url ~ '?t=' ~ now_ts }}
                               {% endif %}
                           image: "{{ thumbnail_android_url ~ '?t=' ~ now_ts }}"
-                          clickAction: "{{ clip_url }}"
+                          clickAction: "{{ (video_ios if input_ios_live_view else clip_url) }}"
                           push: { interruption-level: active }
                           alert_once: "{{ alert_once }}"
                           actions:
                             - action: URI
                               title: View Clip
-                              uri: "{{ clip_url }}"
+                              uri: "{{ (video_ios if input_ios_live_view else clip_url) }}"
                             - action: URI
                               title: Open Frigate
                               uri: "{{ frigate_review_url }}"
+                            - action: URI
+                              title: View Live
+                              uri: "{{ live_deeplink }}"
+                            - action: "SILENCE_{{ this.entity_id }}"
+                              title: Silence
+                              behavior: textInput
           - delay: "{{ cooldown_td }}"
+
+  # Handle the Silence action
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: mobile-action
+          - condition: template
+            value_template: "{{ trigger.event.data.action == 'SILENCE_' ~ this.entity_id }}"
+        sequence:
+          - variables:
+              silence_min: >-
+                {% if trigger.event.data.reply_text is defined and (trigger.event.data.reply_text | regex_match('^\\d+$')) %}
+                  {{ ([ (trigger.event.data.reply_text | int), 1 ] | max) | min(120) }}
+                {% else %}
+                  5
+                {% endif %}
+          - service: persistent_notification.create
+            data:
+              title: "Frigate Notifications"
+              message: "Silenced for {{ silence_min }} minutes."
+          - service: automation.turn_off
+            target:
+              entity_id: "{{ this.entity_id }}"
+            data:
+              stop_actions: false
+          - delay:
+              minutes: "{{ silence_min }}"
+          - service: automation.turn_on
+            target:
+              entity_id: "{{ this.entity_id }}"
 
 mode: parallel
 max: 25
