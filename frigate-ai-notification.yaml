@@ -563,17 +563,16 @@ action:
 
       # Frigate UI /review derivation
       frigate_review_url: >-
-        {% set configured = (input_frigate_url | default('', true) | trim) %}
-        {% if configured %}
-          {% set base = configured | regex_replace('/+$','') | regex_replace('/review$','') %}
-          {{ base }}/review
+        {% set base = (input_frigate_url | default('', true) | trim) %}
+        {% if base %}
+          {{ base | regex_replace('/+$','') }}/review?camera={{ camera }}&id={{ id }}
         {% else %}
           {% if base_url %}
-            {{ base_url }}/api/frigate/review
+            {{ base_url }}/api/frigate/review?camera={{ camera }}&id={{ id }}
           {% elif local_url %}
-            {{ local_url }}/api/frigate/review
+            {{ local_url }}/api/frigate/review?camera={{ camera }}&id={{ id }}
           {% else %}
-            /api/frigate/review
+            /api/frigate/review?camera={{ camera }}&id={{ id }}
           {% endif %}
         {% endif %}
 
@@ -603,6 +602,7 @@ action:
                   event_type={{ event_type }} camera={{ camera }} zone_match={{ zone_match }} cooldown_active={{ cooldown_active }}
                   score_check={{ ( (trigger.payload_json.get('after', {}) or {}).get('top_score') if (trigger.payload_json.get('after', {}) or {}).get('top_score') is not none else (trigger.payload_json.get('after', {}) or {}).get('score', 1) ) | float(1) }}
                   require_clip={{ require_clip }} has_clip={{ (trigger.payload_json.get('after') or {}).get('has_clip', false) }} require_not_fp={{ require_not_false_positive }}
+                  urls: review={{ frigate_review_url }} base={{ base_url }} local={{ local_url }} configured_frigate_url={{ input_frigate_url }}
 
   - choose:
       - conditions:
