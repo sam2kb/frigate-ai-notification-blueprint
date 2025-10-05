@@ -547,7 +547,7 @@ action:
       thumbnail_url: "{{ (base_url ~ thumbnail_path) if base_url else thumbnail_path }}"
       thumbnail_android_url: "{{ thumbnail_url ~ '?format=android' }}"
       video_ios: "/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8"
-      live_deeplink: "entityId: camera.{{ camera }}"
+      live_deeplink: "entityId:camera.{{ camera }}"
 
       has_clip: "{{ (trigger.payload_json.get('after') or {}).get('has_clip', false) }}"
       click_target_url: "{{ clip_url if has_clip else snapshot_url }}"
