@@ -108,7 +108,6 @@ blueprint:
           description: Add the word "Camera" to the end of the camera name (e.g., "Back Yard" → "Back Yard Camera").
           default: false
           selector: { boolean: {} }
-
         expand:
           name: Expand "Cam" → "Camera"
           description: Replace "Cam" with "Camera" in the camera name.
@@ -159,25 +158,21 @@ blueprint:
           description: Optional dashboard URL opened by the "View Summary" action; leave blank to hide the button.
           default: ""
           selector: { text: {} }
-
         generate_title:
           name: Generate Event Title
           description: Enable to generate a dynamic title for each event summary.
           default: true
           selector: { boolean: {} }
-
         include_filename:
           name: Include Filenames
           description: Attach filenames when sending Frigate clips.
           default: false
           selector: { boolean: {} }
-
         expose_images:
           name: Expose Images
           description: Save analyzed frames to `/www/llmvision` for notifications. File paths will be included in the LLM response.
           default: true
           selector: { boolean: {} }
-
         provider:
           name: Provider
           description: Choose the LLMVision provider. See documentation for supported options.
@@ -185,7 +180,6 @@ blueprint:
           selector:
             config_entry:
               integration: llmvision
-
         model:
           name: Model
           description: Language model to use. Depends on the selected provider.
@@ -194,7 +188,6 @@ blueprint:
             text:
               multiline: false
               multiple: false
-
         prompt:
           name: LLMVision Prompt
           default: >
@@ -211,41 +204,35 @@ blueprint:
             text:
               multiline: true
               multiple: false
-
         max_tokens:
           name: Maximum Tokens
           description: Limit the number of tokens used in the summary (controls length).
           default: 20
           selector:
             number: { min: 1, max: 100, step: 1, mode: slider }
-
         temperature:
           name: Temperature
           description: Adjusts response randomness. Lower values yield more accurate, consistent results; higher values are more creative.
           default: 0.1
           selector:
             number: { min: 0.1, max: 1.0, step: 0.1, mode: slider }
-
         max_frames:
           name: Total Frames
           description: Number of frames to analyze from the event.
           default: 3
           selector:
             number: { min: 1, max: 60, step: 1, mode: slider }
-
         frigate_retry_attempts:
           name: Retry Attempts
           description: Number of retry attempts if the Frigate clip isn’t ready.
           default: 4
           selector:
             number: { min: 1, max: 20, step: 1, mode: slider }
-
         frigate_retry_time:
           name: Retry Timing
           description: How long to keep retrying the LLM request if the clip isn't ready.
           default: { hours: 0, minutes: 0, seconds: 30 }
           selector: { duration: {} }
-
         target_width:
           name: Target Width
           description: Downscale frame width to reduce token usage and speed up processing.
@@ -264,57 +251,45 @@ blueprint:
           description: Include Frigate sublabels in the prompt if available.
           default: true
           selector: { boolean: {} }
-
         base_url:
           name: External Base URL
           description: Public URL for Home Assistant. Leave empty to use configured external URL.
           default: ""
           selector: { text: {} }
-
         local_url:
           name: Internal Base URL
           description: Local URL for Home Assistant. Leave empty to use configured internal URL.
           default: ""
           selector: { text: {} }
-
         frigate_url:
           name: Frigate Instance URL
           description: Optional. Full base URL to your Frigate UI (include port if needed), e.g. https://frigate.lan:8971
           default: ""
           selector: { text: {} }
-
-        # NEW: per-camera silence table
+        # Per-camera silence table (also used for auto 30s cooldown if present)
         silence_table:
           name: Per-Camera Silence Table (input_text)
           description: >
-            Optional. Input Text helper storing a JSON map of {camera_slug: silent_until_ts}.
+            Recommended. Input Text helper storing a JSON map of {camera_slug: silent_until_ts}.
             Create an Input Text (e.g. "Frigate Silence Table"), set its value to "{}", and select it here.
-            If not set, the Silence button falls back to a global mute (turns off this automation).
+            If not set, the “Silence” button (and auto-cooldown fallback) mute the whole automation temporarily.
           default: ""
           selector:
             entity:
               domain: [input_text]
               multiple: false
-
         debug:
           name: Debugging
           description: Enable debug logging for this automation.
           default: false
           selector: { boolean: {} }
-
         notification_timeout:
           name: Notification Timeout (hours)
           description: Time before Android automatically clears the notification.
           default: 10
           selector:
             number:
-              {
-                min: 1,
-                max: 48,
-                step: 1,
-                unit_of_measurement: hours,
-                mode: slider,
-              }
+              { min: 1, max: 48, step: 1, unit_of_measurement: hours, mode: slider }
 
 trigger_variables:
   input_cameras: !input camera
@@ -366,6 +341,9 @@ action:
       input_frigate_url: !input frigate_url
       input_cooldown_datetime: !input cooldown_timestamp
       input_silence_table: !input silence_table
+
+      # auto-cooldown (hardcoded): 30 seconds after sending a push for this camera
+      auto_silence_secs: 30
 
       silence_table_enabled: "{{ (input_silence_table | string) | length > 0 }}"
       silence_raw: "{{ states(input_silence_table) if input_silence_table else '' }}"
@@ -454,11 +432,7 @@ action:
         {% set RXI = zones_include_rx %}
         {% set RXE = zones_exclude_rx %}
         {% set exclude_hit = false %}
-        {% for rx in RXE %}
-          {% for z in Z %}
-            {% if z | regex_match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}
-          {% endfor %}
-        {% endfor %}
+        {% for rx in RXE %}{% for z in Z %}{% if z | regex_match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}{% endfor %}{% endfor %}
         {% if (zones_filter | length) == 0 %}
           {% set include_ok = true %}
         {% else %}
@@ -468,18 +442,12 @@ action:
             {% set include_ok = true %}
             {% for rx in RXI %}
               {% set nsf = namespace(found=false) %}
-              {% for z in Z %}
-                {% if z | regex_match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}
-              {% endfor %}
+              {% for z in Z %}{% if z | regex_match(rx, ignorecase=true) %}{% set nsf.found = true %}{% endif %}{% endfor %}
               {% if not nsf.found %}{% set include_ok = false %}{% endif %}
             {% endfor %}
           {% else %}
             {% set ns_any = namespace(hit=false) %}
-            {% for rx in RXI %}
-              {% for z in Z %}
-                {% if z | regex_match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}
-              {% endfor %}
-            {% endfor %}
+            {% for rx in RXI %}{% for z in Z %}{% if z | regex_match(rx, ignorecase=true) %}{% set ns_any.hit = true %}{% endif %}{% endfor %}{% endfor %}
             {% set include_ok = ns_any.hit %}
           {% endif %}
         {% endif %}
@@ -585,6 +553,9 @@ action:
           {{ now_ts < until }}
         {% endif %}
 
+      # Use camera slug as tag to collapse cards per camera
+      tag_key: "{{ camera }}"
+
   - condition: template
     value_template: "{{ not labels|length or object in labels }}"
 
@@ -593,26 +564,6 @@ action:
 
   - condition: template
     value_template: "{{ camera in (camera_slugs_vars or []) }}"
-
-  # Initialize silence table to '{}' automatically on first run if needed
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ silence_table_enabled and silence_is_empty }}"
-        sequence:
-          - service: input_text.set_value
-            data:
-              entity_id: "{{ input_silence_table }}"
-              value: "{}"
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ input_debug }}"
-                sequence:
-                  - service: logbook.log
-                    data:
-                      name: Frigate Notification
-                      message: "DEBUG: Initialized per-camera silence table to {}"
 
   - choose:
       - conditions:
@@ -663,7 +614,7 @@ action:
                             data:
                               channel: "{{ camera_name }} Notifications"
                               timeout: "{{ timeout_secs }}"
-                              tag: "{{ id }}"
+                              tag: "{{ tag_key }}"
                               group: "{{ camera_name }}"
                               notification_icon: "{{ icon }}"
                               data: { ttl: "0", priority: "high" }
@@ -673,22 +624,21 @@ action:
                               push: { interruption-level: active }
                               alert_once: "{{ alert_once }}"
                               actions:
-                                # Order matters (Android shows max 3): Silence, View Live, View Clip, (iOS) View Summary
-                                - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                                  title: Silence
-                                  behavior: textInput
-                                  reply: true
-                                  textInputButtonTitle: "OK"
-                                  textInputPlaceholder: "Minutes (e.g. 5)"
-                                - action: URI
-                                  title: View Live
-                                  uri: "{{ live_deeplink }}"
                                 - action: URI
                                   title: View Clip
                                   uri: "{{ view_clip_uri_initial }}"
                                 - action: URI
                                   title: View Summary
                                   uri: "{{ input_dashboard }}"
+                                - action: URI
+                                  title: Open Frigate
+                                  uri: "{{ frigate_review_url }}"
+                                - action: URI
+                                  title: View Live
+                                  uri: "{{ live_deeplink }}"
+                                - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                                  title: Silence
+                                  behavior: textInput
                         - variables:
                             initial_sent: true
                   default:
@@ -699,7 +649,7 @@ action:
                         data:
                           channel: "{{ camera_name }} Notifications"
                           timeout: "{{ timeout_secs }}"
-                          tag: "{{ id }}"
+                          tag: "{{ tag_key }}"
                           group: "{{ camera_name }}"
                           notification_icon: "{{ icon }}"
                           data: { ttl: "0", priority: "high" }
@@ -709,25 +659,44 @@ action:
                           push: { interruption-level: active }
                           alert_once: "{{ alert_once }}"
                           actions:
-                            # Order matters (Android shows max 3)
-                            - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                              title: Silence
-                              behavior: textInput
-                              reply: true
-                              textInputButtonTitle: "OK"
-                              textInputPlaceholder: "Minutes (e.g. 5)"
-                            - action: URI
-                              title: View Live
-                              uri: "{{ live_deeplink }}"
                             - action: URI
                               title: View Clip
                               uri: "{{ view_clip_uri_initial }}"
                             - action: URI
                               title: Open Frigate
                               uri: "{{ frigate_review_url }}"
+                            - action: URI
+                              title: View Live
+                              uri: "{{ live_deeplink }}"
+                            - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                              title: Silence
+                              behavior: textInput
                     - variables:
                         initial_sent: true
 
+          # Auto 30s per-camera cooldown: write to silence table if present, else global fallback
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ initial_sent and silence_table_enabled }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: "{{ input_silence_table }}"
+                      value: >-
+                        {% set cur = (states(input_silence_table) | default('{}', true) | from_json) %}
+                        {% set existing = (cur.get(camera) | default(0)) | int(0) %}
+                        {% set until = [ existing, (as_timestamp(now()) | int(0)) + (auto_silence_secs | int) ] | max %}
+                        {{ (cur | combine({ camera: until })) | tojson }}
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ input_debug }}"
+                        sequence:
+                          - service: logbook.log
+                            data:
+                              name: Frigate Notification
+                              message: "DEBUG: auto per-camera silence set for {{ camera }} ({{ auto_silence_secs }}s)."
           - choose:
               - conditions:
                   - condition: template
@@ -802,7 +771,6 @@ action:
               {% set until = (m.get(camera) | default(0)) | int(0) %}
               {{ (as_timestamp(now()) | int(0)) < until }}
               {% endif %}
-            # zone filters (update-time union)
             current_zones_lower: "{{ (event_after.get('current_zones', []) | map('lower') | list) }}"
             current_zones_before_lower: "{{ (event_before.get('current_zones', []) | map('lower') | list) }}"
             entered_zones_lower: "{{ (event_after.get('entered_zones', []) | map('lower') | list) }}"
@@ -949,7 +917,7 @@ action:
                           data:
                             channel: "{{ camera_name }} Notifications"
                             timeout: "{{ timeout_secs }}"
-                            tag: "{{ id }}"
+                            tag: "{{ tag_key }}"
                             group: "{{ camera_name }}"
                             data: { ttl: "0", priority: "high" }
                             notification_icon: "{{ icon }}"
@@ -959,22 +927,18 @@ action:
                             push: { interruption-level: active }
                             alert_once: "{{ alert_once }}"
                             actions:
-                              # Order matters (Android shows max 3)
-                              - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                                title: Silence
-                                behavior: textInput
-                                reply: true
-                                textInputButtonTitle: "OK"
-                                textInputPlaceholder: "Minutes (e.g. 5)"
-                              - action: URI
-                                title: View Live
-                                uri: "{{ live_deeplink }}"
                               - action: URI
                                 title: View Clip
                                 uri: "{{ view_clip_uri_update }}"
                               - action: URI
                                 title: Open Frigate
                                 uri: "{{ frigate_review_url }}"
+                              - action: URI
+                                title: View Live
+                                uri: "{{ live_deeplink }}"
+                              - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                                title: Silence
+                                behavior: textInput
                       - variables:
                           update_sent: true
 
@@ -1046,7 +1010,7 @@ action:
                     data:
                       channel: "{{ camera_name }} Notifications"
                       timeout: "{{ timeout_secs }}"
-                      tag: "{{ id }}"
+                      tag: "{{ tag_key }}"
                       group: "{{ camera_name }}"
                       notification_icon: "{{ icon }}"
                       data: { ttl: "0", priority: "high" }
@@ -1059,16 +1023,6 @@ action:
                       push: { interruption-level: active }
                       alert_once: "{{ alert_once }}"
                       actions:
-                        # Order matters (Android shows max 3)
-                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                          title: Silence
-                          behavior: textInput
-                          reply: true
-                          textInputButtonTitle: "OK"
-                          textInputPlaceholder: "Minutes (e.g. 5)"
-                        - action: URI
-                          title: View Live
-                          uri: "{{ live_deeplink }}"
                         - action: URI
                           title: View Clip
                           uri: >-
@@ -1078,6 +1032,12 @@ action:
                         - action: URI
                           title: Open Frigate
                           uri: "{{ frigate_review_url }}"
+                        - action: URI
+                          title: View Live
+                          uri: "{{ live_deeplink }}"
+                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                          title: Silence
+                          behavior: textInput
           - choose:
               - conditions:
                   - condition: template
@@ -1184,7 +1144,7 @@ action:
                     data:
                       channel: "{{ camera }}_notifications"
                       timeout: "{{ timeout_secs }}"
-                      tag: "{{ id }}"
+                      tag: "{{ tag_key }}"
                       group: "{{ camera_name }}"
                       notification_icon: "{{ icon }}"
                       data: { ttl: "0", priority: "high" }
@@ -1200,22 +1160,18 @@ action:
                       push: { interruption-level: active }
                       alert_once: "{{ alert_once }}"
                       actions:
-                        # Order matters (Android shows max 3)
-                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                          title: Silence
-                          behavior: textInput
-                          reply: true
-                          textInputButtonTitle: "OK"
-                          textInputPlaceholder: "Minutes (e.g. 5)"
-                        - action: URI
-                          title: View Live
-                          uri: "{{ live_deeplink }}"
                         - action: URI
                           title: View Clip
                           uri: "{{ (video_ios if input_ios_live_view else clip_url) }}"
                         - action: URI
                           title: Open Frigate
                           uri: "{{ frigate_review_url }}"
+                        - action: URI
+                          title: View Live
+                          uri: "{{ live_deeplink }}"
+                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                          title: Silence
+                          behavior: textInput
           - delay: "{{ cooldown_td }}"
 
   # Handle Silence action (per-camera if table provided; otherwise global fallback)
@@ -1227,7 +1183,6 @@ action:
             value_template: "{{ trigger.event.data.action is string and trigger.event.data.action.startswith('SILENCE_' ~ this.entity_id) }}"
         sequence:
           - variables:
-              # parse "SILENCE_<entity_id>__<camera>"
               action_raw: "{{ trigger.event.data.action }}"
               action_cam: >-
                 {% set prefix = 'SILENCE_' ~ this.entity_id ~ '__' %}
