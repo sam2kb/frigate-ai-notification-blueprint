@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [3.0.1] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
