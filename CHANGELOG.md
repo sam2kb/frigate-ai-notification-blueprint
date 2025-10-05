@@ -1,49 +1,51 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project will be documented here.
 
-## [0.2.1] - 2025-09-29
-
-- Added Exclude Zones - a list of zones to always suppress notifications, even if they also match the include list.
-- MQTT trigger still filters `to type`: new. Event updates are consumed inside the update loop; the first push can be sent immediately (pre-loop) once zone match, cooldown, and quality checks pass. The update loop handles follow-ups (clip ready, zone/sub-label changes, and `end`).
-- Zone matching kept as include/exclude with wildcard support; internal matcher was hardened (proper escaping of `.`, `*`, `?` and optional `^…$` anchoring).
-- Quality check now prefers the best of `top_score` or `score` when available.
-- iOS Live View setting lives under Notification Customization. When External Base URL is blank, iOS falls back to the thumbnail.
-- Cooldown: optional `input_datetime` helper provides cross-update throttling; default duration remains 1 minute. Timestamp is written once per notification (not per device).
-- Add more debug steps
-
-## [0.2.0] - 2025-09-28
+## [0.3.0] - 2025-10-05
 
 ### Added
-- Zone-based filtering: New inputs to precisely control zone matching and behavior:
-  - Zones to Notify On (`zones`): Comma-separated list of Frigate zones (blank = ALL).
-    - Supports wildcards (* and ?), e.g., `*_near` to match all zones ending with `_near`.
-  - Zone Filter Mode (`zone_filter_mode`): `include` (only notify on listed zones) or `exclude` (ignore listed zones).
-  - Zone Match Type (`zone_match_type`): Match by `entered`, `current`, or `either` set of zones.
-  - Zone Logic (`zone_logic`): When mode is `include`, require `any` or `all` of the listed zones to match.
-  - Filtering applies to initial notifications, update notifications, and LLMVision analysis.
-- Multi-camera input: Select multiple Frigate camera entities; events are filtered to the selected cameras.
- - LLMVision integration is fully optional; leave Provider blank to disable.
- - Signal Quality Filters:
-   - `min_score` (default 0.6)
-   - `require_clip` (notify only when `has_clip=true`)
-   - `require_not_false_positive` (default true)
-- Frigate Instance URL (`frigate_url`)
-- Auto-detection of Home Assistant URLs when inputs are blank:
-  - Falls back to `state_attr('homeassistant', 'external_url'|'internal_url')`.
-- Home Assistant version guard: Blueprint declares `homeassistant.min_version: 2024.6.0`.
+- **iOS HLS live view**: when *iOS Notification* is enabled, notifications use the `.m3u8` stream where possible. Falls back to snapshot if a signed clip URL isn’t available.
+- **“View Live” action**: opens the camera entity in the HA app (`entityId:camera.<slug>`). Included on initial, update, end, and LLMVision notifications.
+- **Per-camera “Silence” action**:
+  - Tap **Silence** and (optionally) enter minutes (default 5, min 1, max 120).
+  - Uses an **Input Text** helper to store a JSON map `{camera_slug: silent_until_ts}`.
+  - If the helper isn’t configured, falls back to a **global mute** (temporarily turns off this automation).
+- **Optional Input Text** setting: *Per-Camera Silence Table (input_text)*.
 
 ### Changed
-- Automation mode switched to `parallel` with `max: 25` so multiple events can process concurrently.
-- Replaced hardcoded links `base_url` / `local_url` / `frigate_review_url` - are now empty strings and auto-resolve from HA config.
-- iOS live view now uses the signed clip URL when enabled.
+- **Update spam trimmed**:
+  - Update notifications now fire only when **clip becomes ready**, **sub-label changes**, or **the zone match set changes**.
+  - Pure snapshot churn is ignored for stationary objects.
+- **Exclude zones take precedence** over includes at every step (initial, updates, end). Useful for carving out “privacy” pockets inside broad include areas.
+- **Zone matcher hardened**: correct wildcard handling, proper escaping of regex metacharacters, and consistent anchoring strategy.
+- **Signed clip URLs** preferred for iOS attachments when an external base URL is available.
+- **Silence table auto-init**: gracefully treats empty/unknown/unavailable helper values as `{}`.
+- **Debug logs cleaned up**: clearer one-liners showing `camera_silenced`, zone decisions, and update reasons.
 
-### Misc
-- Helper entity is optional and only used when LLM is enabled.
-- Fallback to snapshot when clip isn't ready yet
-- `wait_for_trigger` value template now safely handles events with only `before` or `after` data.
-- Mobile app notify service slugification now uses HA’s native rules, handling apostrophes/punctuation (e.g., “Bob’s” → `bob_s_...`).
-- Reduced update spam from stationary objects by only notifying on new snapshots or sublabel changes when objects are motionless.
+### Fixed
+- iOS attachments sometimes linked to MP4 before ready; now correctly fall back to snapshot or HLS.
+- Rare template errors when the silence helper contained non-JSON or was empty.
+- Mobile app notify service slugification handles punctuation/apostrophes reliably.
+- Update loop now cleanly exits on `end` and won’t echo redundant updates.
+
+---
+
+## [0.2.1] - 2025-09-29
+- **Exclude Zones**: list of zones that always suppress notifications, even if also included.
+- MQTT trigger filters to `type: new`; updates are handled inside an internal loop.
+- Quality check prefers the best of `top_score` or `score`.
+- iOS live view toggle moved under Notification Customization; falls back to thumbnail when no external URL.
+- Optional cooldown `input_datetime` for cross-update throttling; timestamp written once per notification.
+- Expanded debug logging.
+
+## [0.2.0] - 2025-09-28
+- Zone-based filtering (includes/excludes with wildcards), match type (`entered`/`current`/`either`), and logic (`any`/`all`).
+- Multi-camera support in a single automation; `mode: parallel (max 25)`.
+- Optional LLMVision integration (leave Provider blank to disable).
+- Signal quality filters (`min_score`, `require_clip`, `require_not_false_positive`).
+- Auto-detection of HA base URLs; optional explicit Frigate UI URL.
+- iOS live view uses signed clip URLs when enabled.
 
 ---
 
