@@ -528,7 +528,7 @@ action:
         {{ (value or base_url) | trim | regex_replace('/+$', '') }}
 
       base_title: "{{ label }} detected"
-      base_message: "{{ label }} was detected on the {{ camera_name }}."
+      base_message: "{{ label }} detected by {{ camera_name }}."
       title: "{{ base_title }}"
       message: "{{ base_message }}"
       fps: "{{ states('sensor.' + camera + '_camera_fps') | int(5) }}"
@@ -844,7 +844,7 @@ action:
               {% for rx in RXE %}{% for z in Z %}{% if z is match(rx, ignorecase=true) %}{% set exclude_hit = true %}{% endif %}{% endfor %}{% endfor %}
               {{ include_ok and (not exclude_hit) }}
             title: >-
-              {% if sub_label_text %}{{ sub_label_text }} detected on the {{ camera_name }}.
+              {% if sub_label_text %}{{ sub_label_text }} detected by {{ camera_name }}.
               {% else %}{{ base_title }}{% endif %}
             message: >-
               {% if sub_label_text %}{{ base_message }} (Updated sub-label: {{ sub_label_text }})
