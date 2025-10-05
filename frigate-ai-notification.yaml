@@ -572,6 +572,7 @@ action:
       alert_once: true
       ended: false
 
+      # per-camera silence (evaluated at trigger time)
       camera_silenced: >-
         {% if not silence_table_enabled %}
           false
@@ -584,6 +585,16 @@ action:
           {{ now_ts < until }}
         {% endif %}
 
+  - condition: template
+    value_template: "{{ not labels|length or object in labels }}"
+
+  - condition: template
+    value_template: "{{ (id | string) | length > 0 }}"
+
+  - condition: template
+    value_template: "{{ camera in (camera_slugs_vars or []) }}"
+
+  # Initialize silence table to '{}' automatically on first run if needed
   - choose:
       - conditions:
           - condition: template
@@ -593,15 +604,15 @@ action:
             data:
               entity_id: "{{ input_silence_table }}"
               value: "{}"
-
-  - condition: template
-    value_template: "{{ not labels|length or object in labels }}"
-
-  - condition: template
-    value_template: "{{ (id | string) | length > 0 }}"
-
-  - condition: template
-    value_template: "{{ camera in (camera_slugs_vars or []) }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ input_debug }}"
+                sequence:
+                  - service: logbook.log
+                    data:
+                      name: Frigate Notification
+                      message: "DEBUG: Initialized per-camera silence table to {}"
 
   - choose:
       - conditions:
@@ -662,21 +673,22 @@ action:
                               push: { interruption-level: active }
                               alert_once: "{{ alert_once }}"
                               actions:
+                                # Order matters (Android shows max 3): Silence, View Live, View Clip, (iOS) View Summary
+                                - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                                  title: Silence
+                                  behavior: textInput
+                                  reply: true
+                                  textInputButtonTitle: "OK"
+                                  textInputPlaceholder: "Minutes (e.g. 5)"
+                                - action: URI
+                                  title: View Live
+                                  uri: "{{ live_deeplink }}"
                                 - action: URI
                                   title: View Clip
                                   uri: "{{ view_clip_uri_initial }}"
                                 - action: URI
                                   title: View Summary
                                   uri: "{{ input_dashboard }}"
-                                - action: URI
-                                  title: Open Frigate
-                                  uri: "{{ frigate_review_url }}"
-                                - action: URI
-                                  title: View Live
-                                  uri: "{{ live_deeplink }}"
-                                - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                                  title: Silence
-                                  behavior: textInput
                         - variables:
                             initial_sent: true
                   default:
@@ -697,18 +709,22 @@ action:
                           push: { interruption-level: active }
                           alert_once: "{{ alert_once }}"
                           actions:
+                            # Order matters (Android shows max 3)
+                            - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                              title: Silence
+                              behavior: textInput
+                              reply: true
+                              textInputButtonTitle: "OK"
+                              textInputPlaceholder: "Minutes (e.g. 5)"
+                            - action: URI
+                              title: View Live
+                              uri: "{{ live_deeplink }}"
                             - action: URI
                               title: View Clip
                               uri: "{{ view_clip_uri_initial }}"
                             - action: URI
                               title: Open Frigate
                               uri: "{{ frigate_review_url }}"
-                            - action: URI
-                              title: View Live
-                              uri: "{{ live_deeplink }}"
-                            - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                              title: Silence
-                              behavior: textInput
                     - variables:
                         initial_sent: true
 
@@ -780,7 +796,9 @@ action:
             # recompute per-camera silenced state on each loop tick
             camera_silenced_now: >-
               {% if not silence_table_enabled %}false{% else %}
-              {% set m = (states(input_silence_table) | default('{}', true) | from_json) %}
+              {% set raw = (states(input_silence_table) | default('{}', true) | trim | replace("'", '"')) %}
+              {% set raw = '{}' if raw in ['', 'unknown', 'unavailable'] else raw %}
+              {% set m = raw | from_json %}
               {% set until = (m.get(camera) | default(0)) | int(0) %}
               {{ (as_timestamp(now()) | int(0)) < until }}
               {% endif %}
@@ -941,18 +959,22 @@ action:
                             push: { interruption-level: active }
                             alert_once: "{{ alert_once }}"
                             actions:
+                              # Order matters (Android shows max 3)
+                              - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                                title: Silence
+                                behavior: textInput
+                                reply: true
+                                textInputButtonTitle: "OK"
+                                textInputPlaceholder: "Minutes (e.g. 5)"
+                              - action: URI
+                                title: View Live
+                                uri: "{{ live_deeplink }}"
                               - action: URI
                                 title: View Clip
                                 uri: "{{ view_clip_uri_update }}"
                               - action: URI
                                 title: Open Frigate
                                 uri: "{{ frigate_review_url }}"
-                              - action: URI
-                                title: View Live
-                                uri: "{{ live_deeplink }}"
-                              - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                                title: Silence
-                                behavior: textInput
                       - variables:
                           update_sent: true
 
@@ -999,7 +1021,9 @@ action:
           - condition: template
             value_template: >-
               {% if not silence_table_enabled %}true{% else %}
-              {% set m = (states(input_silence_table) | default('{}', true) | from_json) %}
+              {% set raw = (states(input_silence_table) | default('{}', true) | trim | replace("'", '"')) %}
+              {% set raw = '{}' if raw in ['', 'unknown', 'unavailable'] else raw %}
+              {% set m = raw | from_json %}
               {% set until = (m.get(camera) | default(0)) | int(0) %}
               {{ (as_timestamp(now()) | int(0)) >= until }}
               {% endif %}
@@ -1035,6 +1059,16 @@ action:
                       push: { interruption-level: active }
                       alert_once: "{{ alert_once }}"
                       actions:
+                        # Order matters (Android shows max 3)
+                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                          title: Silence
+                          behavior: textInput
+                          reply: true
+                          textInputButtonTitle: "OK"
+                          textInputPlaceholder: "Minutes (e.g. 5)"
+                        - action: URI
+                          title: View Live
+                          uri: "{{ live_deeplink }}"
                         - action: URI
                           title: View Clip
                           uri: >-
@@ -1044,12 +1078,6 @@ action:
                         - action: URI
                           title: Open Frigate
                           uri: "{{ frigate_review_url }}"
-                        - action: URI
-                          title: View Live
-                          uri: "{{ live_deeplink }}"
-                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                          title: Silence
-                          behavior: textInput
           - choose:
               - conditions:
                   - condition: template
@@ -1072,7 +1100,9 @@ action:
           - condition: template
             value_template: >-
               {% if not silence_table_enabled %}true{% else %}
-              {% set m = (states(input_silence_table) | default('{}', true) | from_json) %}
+              {% set raw = (states(input_silence_table) | default('{}', true) | trim | replace("'", '"')) %}
+              {% set raw = '{}' if raw in ['', 'unknown', 'unavailable'] else raw %}
+              {% set m = raw | from_json %}
               {% set until = (m.get(camera) | default(0)) | int(0) %}
               {{ (as_timestamp(now()) | int(0)) >= until }}
               {% endif %}
@@ -1170,18 +1200,22 @@ action:
                       push: { interruption-level: active }
                       alert_once: "{{ alert_once }}"
                       actions:
+                        # Order matters (Android shows max 3)
+                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
+                          title: Silence
+                          behavior: textInput
+                          reply: true
+                          textInputButtonTitle: "OK"
+                          textInputPlaceholder: "Minutes (e.g. 5)"
+                        - action: URI
+                          title: View Live
+                          uri: "{{ live_deeplink }}"
                         - action: URI
                           title: View Clip
                           uri: "{{ (video_ios if input_ios_live_view else clip_url) }}"
                         - action: URI
                           title: Open Frigate
                           uri: "{{ frigate_review_url }}"
-                        - action: URI
-                          title: View Live
-                          uri: "{{ live_deeplink }}"
-                        - action: "SILENCE_{{ this.entity_id }}__{{ camera }}"
-                          title: Silence
-                          behavior: textInput
           - delay: "{{ cooldown_td }}"
 
   # Handle Silence action (per-camera if table provided; otherwise global fallback)
@@ -1213,7 +1247,7 @@ action:
                     data:
                       entity_id: "{{ input_silence_table }}"
                       value: >-
-                        {% set current = (states(input_silence_table) | default('{}', true) | from_json) %}
+                        {% set current = (states(input_silence_table) | default('{}', true) | trim | replace("'", '"') | from_json) %}
                         {% set until = (as_timestamp(now()) | int(0)) + (silence_min * 60) %}
                         {{ (current | combine({ action_cam: until })) | to_json }}
                   - service: persistent_notification.create
