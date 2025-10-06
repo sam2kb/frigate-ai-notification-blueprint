@@ -3,7 +3,7 @@
 All notable changes to this project will be documented here.
 
 ## [0.3.2] - 2025-10-06
-- Trigger notification updates only if detection score improves - this ensures the best thumbnail/clip
+- Trigger notification updates only if detection score improves by more than 2% - reduces update spam
 
 ## [0.3.1] - 2025-10-05
 - Hardcoded 30s per-camera cooldown after a push - writes to silence table if set.

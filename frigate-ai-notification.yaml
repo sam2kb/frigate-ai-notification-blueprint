@@ -808,8 +808,17 @@ action:
             score_now_update: >-
               {% set a = event_after or {} %}
               {{ (a.get('top_score') if a.get('top_score') is not none else a.get('score', 0)) | float(0) }}
-            # Is this score strictly better than what we've already sent?
-            score_improved: "{{ (score_now_update | float(0)) > (best_score_sent | float(0)) }}"
+            # Improvement threshold (relative): require >2% increase over previous best
+            score_improve_threshold: 0.02
+            # Is this score better than previous by more than the threshold?
+            score_improved: >-
+              {% set prev = (best_score_sent | float(0)) %}
+              {% set now = (score_now_update | float(0)) %}
+              {% if prev <= 0 %}
+                {{ now > 0 }}
+              {% else %}
+                {{ now > (prev * (1 + score_improve_threshold)) }}
+              {% endif %}
             zone_match_update: >-
               {% set Z = (event_zones_checked_update | default([], true)) | map('lower') | list %}
               {% set logic = (input_zone_logic | lower) %}
@@ -900,7 +909,7 @@ action:
                     message: >
                       DEBUG (update): id={{ id }} new_snapshot={{ new_snapshot }} sub_label_changed={{ sub_label_changed }}
                       zones_checked_changed={{ zones_checked_changed }} has_clip_became_true={{ has_clip_became_true }}
-                      camera_silenced_now={{ camera_silenced_now }} score_now={{ score_now_update }} best_sent={{ best_score_sent }} improved={{ score_improved }}
+                      camera_silenced_now={{ camera_silenced_now }} score_now={{ score_now_update }} best_sent={{ best_score_sent }} improved={{ score_improved }} threshold={{ score_improve_threshold }}
 
         - choose:
             - conditions:
@@ -997,7 +1006,7 @@ action:
                   data:
                     name: Frigate Notification
                     message: >
-                      DEBUG (update suppressed): id={{ id }} score_now={{ score_now_update }} best_sent={{ best_score_sent }} improved={{ score_improved }}
+                      DEBUG (update suppressed): id={{ id }} score_now={{ score_now_update }} best_sent={{ best_score_sent }} improved={{ score_improved }} threshold={{ score_improve_threshold }}
 
         - choose:
             - conditions:
