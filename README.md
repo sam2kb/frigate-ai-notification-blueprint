@@ -6,7 +6,7 @@
 
 ---
 
-## ➤ Import the Blueprint
+## Import the Blueprint
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fmain%2Ffrigate-ai-notification.yaml)
 
@@ -20,8 +20,8 @@
 - **Action buttons**:
   - **View Clip** opens the event clip
   - **View Live** deep-links to the camera in HA
-  - **Open Frigate** jumps to Frigate’s review page
-  - **Silence** mute per-camera for X minutes, or globally if you don’t set a table
+  - **Open Frigate** jumps to Frigate's review page
+  - **Silence** mute per-camera for X minutes, or globally if you don't set a table
 - **Per-camera silence** (optional, recommended): provide an `input_text` helper to store a tiny JSON map of `{camera_slug: muted_until_epoch}`.
 - **Thoughtful update loop**: sends updates on meaningful changes (new snapshot, sub-label change, clip becomes ready) - not for every tiny motion.
 - **Zone filtering** with wildcards:
@@ -58,7 +58,7 @@
 
 1. **Import** the blueprint and **create an automation** from it.  
 2. **Pick your cameras** and **notification devices**.  
-3. (Optional) Turn on **iOS Notification** if you send to iPhones/iPads — this enables the HLS stream path.  
+3. (Optional) Turn on **iOS Notification** if you send to iPhones/iPads - this enables the HLS stream path.  
 4. (Optional) Add **zones** to include/exclude and set match type/logic.  
 5. (Optional) Enable **LLMVision** by selecting a provider/model.  
 6. (Optional) Add **Global cooldown** helper: choose an `input_datetime` so back-to-back alerts are throttled.
@@ -69,11 +69,11 @@
 
 ## 📲 How the Notification Behaves
 
-Every send uses the same tag: `{{ id }}` - the Frigate event id. On both Android and iOS the HA app treats a repeated tag as a replacement of the existing notification rather than a new one. We also set `alert_once: true`, so the updated notification won’t ping/vibrate again.
+Every send uses the same tag: `{{ id }}` - the Frigate event id. On both Android and iOS the HA app treats a repeated tag as a replacement of the existing notification rather than a new one. We also set `alert_once: true`, so the updated notification won't ping/vibrate again.
 
-The update loop only fires on meaningful changes (clip becomes ready, sub-label changes, zones list changes, or a truly new snapshot). It’s not sending on every MQTT tick.
+The update loop only fires on meaningful changes (clip becomes ready, sub-label changes, zones list changes, or a truly new snapshot). It's not sending on every MQTT tick.
 
-- **Initial alert** on new Frigate event (if it passes your filters).
+- **Initial alert** on new Frigate event if it passes your filters.
 - **Update alerts** on important changes:
   - Clip becomes ready
   - Sub-label recognition changes
@@ -81,16 +81,16 @@ The update loop only fires on meaningful changes (clip becomes ready, sub-label 
   - New snapshot timestamp
 - **End alert** when the event finishes (optional, depending on your filters).
 
-**Buttons you’ll see:**
-- **View Clip** → opens the Frigate clip (or HLS on iOS if enabled)
+**Buttons you'll see:**
+- **View Clip** → opens the Frigate clip or HLS on iOS if enabled
 - **View Live** → deep-links to the camera entity in HA
 - **Open Frigate** → opens `/review?camera=...&id=...`
 - **Silence** → mutes **just this camera** for X minutes (type a number);  
-  if you *didn’t* provide a silence table, it falls back to **global mute** (temporarily turns off this whole automation - all cameras!).
+  if you *didn't* provide a silence table, it falls back to **global mute** (temporarily turns off this whole automation - all cameras!).
 
 ---
 
-## 🎛️ Zones & Labels — The Simple Version
+## 🎛️ Zones & Labels
 
 - **Include list** supports `*` and `?`, blank = include all.
 - **Exclude list**: use to carve out small “privacy” areas inside larger includes. If an event matches both an include and an exclude, the **exclude overrides** and the notification for that step is suppressed.
@@ -109,7 +109,7 @@ The update loop only fires on meaningful changes (clip becomes ready, sub-label 
 
 ## 🔕 Silence, Cooldowns & Noise Controls
 
-- **Silence button**: per-camera mute for X minutes (requires the optional `input_text` table).
+- **Silence button**: per-camera mute for X minutes - requires the optional `input_text` table.
 - **Global cooldown**: prevents rapid repeat notifications across the board (optional `input_datetime`).
 - **Signal quality filters**:
   - **Minimum score** (default 0.6)
@@ -123,9 +123,9 @@ The update loop only fires on meaningful changes (clip becomes ready, sub-label 
 Enable the provider/model to get a **short, readable summary** of what happened.  
 You can tweak:
 - Number of frames analyzed
-- Target width (token/size trade-off)
+- Target width token/size trade-off
 - Max tokens & temperature
-- Whether to expose images (for richer notifications)
+- Whether to expose images for richer notifications
 
 Leave the **Provider** blank to turn AI off.
 
@@ -133,11 +133,11 @@ Leave the **Provider** blank to turn AI off.
 
 ## 🔗 Links the Blueprint Builds for You
 
-- `clip_url` — the event MP4 (or HLS for iOS if toggled)
-- `clip_url_signed` — signed clip (used on iOS when available)
-- `snapshot_url` / `thumbnail_url` — still images
-- `frigate_review_url` — jumps to Frigate’s review UI
-- `live_deeplink` — opens your camera entity in HA
+- `clip_url` - the event MP4 or HLS for iOS if toggled
+- `clip_url_signed` - signed clip used on iOS when available
+- `snapshot_url` / `thumbnail_url` - still images
+- `frigate_review_url` - jumps to Frigate's review UI
+- `live_deeplink` - opens your camera entity in HA
 
 All URLs are auto-derived from your HA internal/external URL when possible. You can override the **Frigate UI URL** if it lives elsewhere (e.g., different host/port).
 
@@ -145,4 +145,4 @@ All URLs are auto-derived from your HA internal/external URL when possible. You 
 
 ## 📜 Changelog
 
-See **[CHANGELOG.md](./CHANGELOG.md)** for what’s new.
+See **[CHANGELOG.md](./CHANGELOG.md)** for what's new.

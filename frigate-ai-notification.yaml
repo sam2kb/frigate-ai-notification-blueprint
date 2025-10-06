@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [3.0.1] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [3.0.2] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -341,6 +341,14 @@ action:
       input_frigate_url: !input frigate_url
       input_cooldown_datetime: !input cooldown_timestamp
       input_silence_table: !input silence_table
+      
+      # Track the best detection score we've already sent for this event
+      best_score_sent: 0.0
+
+      # Current best score at initial trigger time (after -> top_score or score)
+      score_best_initial: >-
+        {% set a = trigger.payload_json.get('after', {}) or {} %}
+        {{ (a.get('top_score') if a.get('top_score') is not none else a.get('score', 0)) | float(0) }}
 
       # auto-cooldown (hardcoded): 30 seconds after sending a push for this camera
       auto_silence_secs: 30
@@ -708,6 +716,15 @@ action:
                       message: >
                         INFO (initial sent): camera={{ camera }} id={{ id }} clip_ready={{ has_clip }}
 
+          # After initial send, update the best score we've announced
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ initial_sent }}"
+                sequence:
+                  - variables:
+                      best_score_sent: "{{ [ (best_score_sent | float(0)), (score_best_initial | float(0)) ] | max }}"
+
           - choose:
               - conditions:
                   - condition: template
@@ -787,6 +804,12 @@ action:
               {% else %}{{ (entered_zones_lower + current_zones_lower) | unique | list }}{% endif %}
             zones_checked_changed: "{{ event_zones_checked_before != event_zones_checked_now }}"
             event_zones_checked_update: "{{ (event_zones_checked_before + event_zones_checked_now) | unique | list }}"
+            # Current best score for this update tick
+            score_now_update: >-
+              {% set a = event_after or {} %}
+              {{ (a.get('top_score') if a.get('top_score') is not none else a.get('score', 0)) | float(0) }}
+            # Is this score strictly better than what we've already sent?
+            score_improved: "{{ (score_now_update | float(0)) > (best_score_sent | float(0)) }}"
             zone_match_update: >-
               {% set Z = (event_zones_checked_update | default([], true)) | map('lower') | list %}
               {% set logic = (input_zone_logic | lower) %}
@@ -877,7 +900,7 @@ action:
                     message: >
                       DEBUG (update): id={{ id }} new_snapshot={{ new_snapshot }} sub_label_changed={{ sub_label_changed }}
                       zones_checked_changed={{ zones_checked_changed }} has_clip_became_true={{ has_clip_became_true }}
-                      camera_silenced_now={{ camera_silenced_now }}
+                      camera_silenced_now={{ camera_silenced_now }} score_now={{ score_now_update }} best_sent={{ best_score_sent }} improved={{ score_improved }}
 
         - choose:
             - conditions:
@@ -885,8 +908,8 @@ action:
                   value_template: >-
                     {{ event.get('type','update') != 'end'
                       and zone_match_update
-                      and (has_clip_became_true or sub_label_changed or zones_checked_changed)
-                      and (not is_stationary or sub_label_changed or zones_checked_changed) }}
+                      and ( has_clip_became_true or ((sub_label_changed or zones_checked_changed) and score_improved) )
+                      and ( (not is_stationary) or sub_label_changed or zones_checked_changed ) }}
                 - condition: template
                   value_template: >-
                     {% set ent = (input_cooldown_datetime | default('', true) | string) %}
@@ -942,6 +965,15 @@ action:
                       - variables:
                           update_sent: true
 
+                # After sending an update, record the best score we've announced so far
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ update_sent | default(false) }}"
+                      sequence:
+                        - variables:
+                            best_score_sent: "{{ [ (best_score_sent | float(0)), (score_now_update | float(0)) ] | max }}"
+
         - choose:
             - conditions:
                 - condition: template
@@ -952,6 +984,20 @@ action:
                     name: Frigate Notification
                     message: >
                       INFO (update sent): camera={{ camera }} id={{ id }}
+
+        # When debug is on, log suppressed updates due to score not improving
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: >-
+                    {{ input_debug and (event.get('type','update') != 'end') and (not (update_sent | default(false)))
+                       and (sub_label_changed or zones_checked_changed) and (not has_clip_became_true) }}
+              sequence:
+                - service: logbook.log
+                  data:
+                    name: Frigate Notification
+                    message: >
+                      DEBUG (update suppressed): id={{ id }} score_now={{ score_now_update }} best_sent={{ best_score_sent }} improved={{ score_improved }}
 
         - choose:
             - conditions:

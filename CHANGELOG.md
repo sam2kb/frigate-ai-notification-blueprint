@@ -2,18 +2,21 @@
 
 All notable changes to this project will be documented here.
 
+## [0.3.2] - 2025-10-06
+- Trigger notification updates only if detection score improves - this ensures the best thumbnail/clip
+
 ## [0.3.1] - 2025-10-05
 - Hardcoded 30s per-camera cooldown after a push - writes to silence table if set.
 - Notification tags: initial + updates use `tag: camera` to collapse per camera; final END uses `tag: id` to retain one card per event.
 
 ## [0.3.0] - 2025-10-05
 ### Added
-- **iOS HLS live view**: when *iOS Notification* is enabled, notifications use the `.m3u8` stream where possible. Falls back to snapshot if a signed clip URL isn’t available.
+- **iOS HLS live view**: when *iOS Notification* is enabled, notifications use the `.m3u8` stream where possible. Falls back to snapshot if a signed clip URL isn't available.
 - **“View Live” action**: opens the camera entity in the HA app (`entityId:camera.<slug>`). Included on initial, update, end, and LLMVision notifications.
 - **Per-camera “Silence” action**:
   - Tap **Silence** and (optionally) enter minutes (default 5, min 1, max 120).
   - Uses an **Input Text** helper to store a JSON map `{camera_slug: silent_until_ts}`.
-  - If the helper isn’t configured, falls back to a **global mute** (temporarily turns off this automation).
+  - If the helper isn't configured, falls back to a **global mute** (temporarily turns off this automation).
 - **Optional Input Text** setting: *Per-Camera Silence Table (input_text)*.
 
 ### Changed
@@ -30,7 +33,7 @@ All notable changes to this project will be documented here.
 - iOS attachments sometimes linked to MP4 before ready; now correctly fall back to snapshot or HLS.
 - Rare template errors when the silence helper contained non-JSON or was empty.
 - Mobile app notify service slugification handles punctuation/apostrophes reliably.
-- Update loop now cleanly exits on `end` and won’t echo redundant updates.
+- Update loop now cleanly exits on `end` and won't echo redundant updates.
 
 ---
 
