@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented here.
 
+## [0.3.3] - 2025-10-27
+- Reduce auto per-camera cooldown to 25 seconds so LLMVision summaries are not skipped by the generated silence window.
+
 ## [0.3.2] - 2025-10-06
 - Trigger notification updates only if detection score improves by more than 2% - reduces update spam
 

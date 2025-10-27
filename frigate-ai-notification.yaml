@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [3.0.2] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [3.0.3] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -350,8 +350,8 @@ action:
         {% set a = trigger.payload_json.get('after', {}) or {} %}
         {{ (a.get('top_score') if a.get('top_score') is not none else a.get('score', 0)) | float(0) }}
 
-      # auto-cooldown (hardcoded): 30 seconds after sending a push for this camera
-      auto_silence_secs: 30
+      # auto-cooldown (hardcoded): 25 seconds after sending a push for this camera
+      auto_silence_secs: 25
 
       silence_table_enabled: "{{ (input_silence_table | string) | length > 0 }}"
       silence_raw: "{{ states(input_silence_table) if input_silence_table else '' }}"
