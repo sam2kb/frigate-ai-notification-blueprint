@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [0.3.4] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [0.3.5] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -352,13 +352,15 @@ action:
       input_camera_name_map: !input camera_name_map
       input_cooldown_datetime: !input cooldown_timestamp
       input_silence_table: !input silence_table
+      payload: >-
+        {{ trigger.payload_json | default({}, true) if trigger is defined else {} }}
       
       # Track the best detection score we've already sent for this event
       best_score_sent: 0.0
 
       # Current best score at initial trigger time (after -> top_score or score)
       score_best_initial: >-
-        {% set a = trigger.payload_json.get('after', {}) or {} %}
+        {% set a = payload.get('after', {}) or {} %}
         {{ (a.get('top_score') if a.get('top_score') is not none else a.get('score', 0)) | float(0) }}
 
       # auto-cooldown (hardcoded): 25 seconds after sending a push for this camera
@@ -394,10 +396,10 @@ action:
       require_clip: !input require_clip
       require_not_false_positive: !input require_not_false_positive
 
-      event_type: "{{ trigger.payload_json.get('type') | default('') }}"
+      event_type: "{{ payload.get('type') | default('') }}"
       event_camera_raw: >-
-        {{ (trigger.payload_json.get('after') or {}).get('camera')
-            or (trigger.payload_json.get('before') or {}).get('camera')
+        {{ (payload.get('after') or {}).get('camera')
+            or (payload.get('before') or {}).get('camera')
             or '' }}
       camera: "{{ (event_camera_raw | string) | lower | replace('-','_') }}"
 
@@ -443,9 +445,9 @@ action:
         {{ ns.rx }}
 
       event_zones_entered: >-
-        {{ (((trigger.payload_json.get('after') or {}).get('entered_zones', []) or []) | list) | map('lower') | list }}
+        {{ (((payload.get('after') or {}).get('entered_zones', []) or []) | list) | map('lower') | list }}
       event_zones_current: >-
-        {{ (((trigger.payload_json.get('after') or {}).get('current_zones', []) or []) | list) | map('lower') | list }}
+        {{ (((payload.get('after') or {}).get('current_zones', []) or []) | list) | map('lower') | list }}
       event_zones_checked: >-
         {% set t = (input_zone_match_type | lower) %}
         {% if t == 'entered' %}
@@ -484,11 +486,11 @@ action:
         {% endif %}
         {{ include_ok and (not exclude_hit) }}
 
-      object: "{{ ((trigger.payload_json.get('after') or {}).get('label') | default('')) }}"
+      object: "{{ ((payload.get('after') or {}).get('label') | default('')) }}"
       label: "{{ object | title }}"
-      sub_label: "{{ (trigger.payload_json.get('after') or {}).get('sub_label') }}"
+      sub_label: "{{ (payload.get('after') or {}).get('sub_label') }}"
       sub_label_text: >-
-        {% set s = (trigger.payload_json.get('after') or {}) %}
+        {% set s = (payload.get('after') or {}) %}
         {% set sl = s.get('sub_label') %}
         {% if sl is string %}{{ sl }}
         {% elif sl is sequence and not (sl is string) %}{{ sl | join(', ') }}
@@ -531,7 +533,7 @@ action:
       title: "{{ base_title }}"
       message: "{{ base_message }}"
       fps: "{{ states('sensor.' + camera + '_camera_fps') | int(5) }}"
-      id: "{{ ((trigger.payload_json.get('after') or {}).get('id')) or ((trigger.payload_json.get('before') or {}).get('id')) }}"
+      id: "{{ ((payload.get('after') or {}).get('id')) or ((payload.get('before') or {}).get('id')) }}"
 
       icon: >-
         mdi:{% if label == 'Person' %}account-outline{% elif label == 'Dog' %}dog{% elif label == 'Cat' %}cat{% elif label == 'Car' %}car{% else %}home-assistant{% endif %}
@@ -548,7 +550,7 @@ action:
       video_ios: "/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8"
       live_deeplink: "entityId:camera.{{ camera }}"
 
-      has_clip: "{{ (trigger.payload_json.get('after') or {}).get('has_clip', false) }}"
+      has_clip: "{{ (payload.get('after') or {}).get('has_clip', false) }}"
       click_target_url: "{{ clip_url if has_clip else snapshot_url }}"
       ios_click_target_url: >-
         {% if input_ios_live_view %}{{ video_ios if has_clip else snapshot_url }}
@@ -587,6 +589,60 @@ action:
       # Use camera slug as tag to collapse cards per camera
       tag_key: "{{ camera }}"
 
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: mobile-action
+          - condition: template
+            value_template: "{{ trigger.event.data.action is string and trigger.event.data.action.startswith('SILENCE_' ~ this.entity_id) }}"
+        sequence:
+          - variables:
+              action_raw: "{{ trigger.event.data.action }}"
+              action_cam: >-
+                {% set prefix = 'SILENCE_' ~ this.entity_id ~ '__' %}
+                {% if action_raw.startswith(prefix) %}{{ action_raw[prefix|length:] }}{% else %}{{ '' }}{% endif %}
+              silence_min: >-
+                {% if trigger.event.data.reply_text is defined and (trigger.event.data.reply_text | regex_match('^\\d+$')) %}
+                  {{ ([ (trigger.event.data.reply_text | int), 1 ] | max) | min(120) }}
+                {% else %}
+                  5
+                {% endif %}
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ silence_table_enabled and (action_cam | length > 0) }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: "{{ input_silence_table }}"
+                      value: >-
+                        {% set current = (states(input_silence_table) | default('{}', true) | trim | replace("'", '"') | from_json) %}
+                        {% set until = (as_timestamp(now()) | int(0)) + (silence_min * 60) %}
+                        {{ (current | combine({ action_cam: until })) | to_json }}
+                  - service: persistent_notification.create
+                    data:
+                      title: "Frigate Notifications"
+                      message: "Silenced {{ action_cam }} for {{ silence_min }} minutes."
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not silence_table_enabled }}"
+                sequence:
+                  - service: persistent_notification.create
+                    data:
+                      title: "Frigate Notifications"
+                      message: "Global silence for {{ silence_min }} minutes (no per-camera silence table configured)."
+                  - service: automation.turn_off
+                    target:
+                      entity_id: "{{ this.entity_id }}"
+                    data:
+                      stop_actions: false
+                  - delay:
+                      minutes: "{{ silence_min }}"
+                  - service: automation.turn_on
+                    target:
+                      entity_id: "{{ this.entity_id }}"
+          - stop: "Handled mobile action"
+
   - condition: template
     value_template: "{{ not labels|length or object in labels }}"
 
@@ -619,7 +675,7 @@ action:
             value_template: "{{ not camera_silenced }}"
           - condition: template
             value_template: >
-              {% set a = trigger.payload_json.get('after', {}) or {} %}
+              {% set a = payload.get('after', {}) or {} %}
               {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
               {% set score_ok = best >= (min_score | float(0)) %}
               {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
@@ -1054,7 +1110,7 @@ action:
             value_template: "{{ zone_match_final | default(false) }}"
           - condition: template
             value_template: >-
-              {% set a = trigger.payload_json.get('after', {}) or {} %}
+              {% set a = payload.get('after', {}) or {} %}
               {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
               {% set score_ok = best >= (min_score | float(0)) %}
               {% set clip_ok = (not require_clip) or a.get('has_clip', false) %}
@@ -1251,60 +1307,6 @@ action:
                           title: Silence
                           behavior: textInput
           - delay: "{{ cooldown_td }}"
-
-  # Handle Silence action (per-camera if table provided; otherwise global fallback)
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: mobile-action
-          - condition: template
-            value_template: "{{ trigger.event.data.action is string and trigger.event.data.action.startswith('SILENCE_' ~ this.entity_id) }}"
-        sequence:
-          - variables:
-              action_raw: "{{ trigger.event.data.action }}"
-              action_cam: >-
-                {% set prefix = 'SILENCE_' ~ this.entity_id ~ '__' %}
-                {% if action_raw.startswith(prefix) %}{{ action_raw[prefix|length:] }}{% else %}{{ '' }}{% endif %}
-              silence_min: >-
-                {% if trigger.event.data.reply_text is defined and (trigger.event.data.reply_text | regex_match('^\\d+$')) %}
-                  {{ ([ (trigger.event.data.reply_text | int), 1 ] | max) | min(120) }}
-                {% else %}
-                  5
-                {% endif %}
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ silence_table_enabled and (action_cam | length > 0) }}"
-                sequence:
-                  - service: input_text.set_value
-                    data:
-                      entity_id: "{{ input_silence_table }}"
-                      value: >-
-                        {% set current = (states(input_silence_table) | default('{}', true) | trim | replace("'", '"') | from_json) %}
-                        {% set until = (as_timestamp(now()) | int(0)) + (silence_min * 60) %}
-                        {{ (current | combine({ action_cam: until })) | to_json }}
-                  - service: persistent_notification.create
-                    data:
-                      title: "Frigate Notifications"
-                      message: "Silenced {{ action_cam }} for {{ silence_min }} minutes."
-              - conditions:
-                  - condition: template
-                    value_template: "{{ not silence_table_enabled }}"
-                sequence:
-                  - service: persistent_notification.create
-                    data:
-                      title: "Frigate Notifications"
-                      message: "Global silence for {{ silence_min }} minutes (no per-camera silence table configured)."
-                  - service: automation.turn_off
-                    target:
-                      entity_id: "{{ this.entity_id }}"
-                    data:
-                      stop_actions: false
-                  - delay:
-                      minutes: "{{ silence_min }}"
-                  - service: automation.turn_on
-                    target:
-                      entity_id: "{{ this.entity_id }}"
 
 mode: parallel
 max: 25
