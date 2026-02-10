@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [3.0.3] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [0.3.4] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -266,6 +266,16 @@ blueprint:
           description: Optional. Full base URL to your Frigate UI (include port if needed), e.g. https://frigate.lan:8971
           default: ""
           selector: { text: {} }
+        camera_name_map:
+          name: Camera Name Override Map (optional)
+          description: >
+            Optional JSON map to override Frigate camera names for selected camera entities.
+            Use when your HA camera entity ids do not match Frigate's camera names.
+            Example: {"camera.front_door_2":"front_door"}
+          default: ""
+          selector:
+            text:
+              multiline: true
         # Per-camera silence table (also used for auto 30s cooldown if present)
         silence_table:
           name: Per-Camera Silence Table (input_text)
@@ -339,6 +349,7 @@ action:
       input_base_url: !input base_url
       input_local_url: !input local_url
       input_frigate_url: !input frigate_url
+      input_camera_name_map: !input camera_name_map
       input_cooldown_datetime: !input cooldown_timestamp
       input_silence_table: !input silence_table
       
@@ -362,11 +373,23 @@ action:
       input_labels: !input labels
       labels: "{{ (input_labels | default([], true) | list) | map('lower') | list }}"
       camera_slugs_vars: >-
-        {{ (selected_cameras_input | default([], true) | list)
-           | map('replace','camera.','')
-           | map('lower')
-           | map('replace','-','_')
-           | list }}
+        {% set cams = (selected_cameras_input | default([], true) | list) %}
+        {% set raw = (input_camera_name_map | default('', true) | string | trim) %}
+        {% set map0 = '{}' if raw in ['', 'unknown', 'unavailable'] else raw %}
+        {% set m = map0 | from_json %}
+        {% set ns = namespace(names=[]) %}
+        {% for ent in cams %}
+          {% set ent_slug = (ent | replace('camera.','') | lower | replace('-','_')) %}
+          {% set mapped = m.get(ent) if m is mapping else none %}
+          {% if mapped is none %}{% set mapped = m.get(ent_slug) if m is mapping else none %}{% endif %}
+          {% set mapped_clean = (mapped | default('', true) | string | trim) %}
+          {% set mapped_slug = (mapped_clean | lower | replace(' ','_') | replace('-','_')) %}
+          {% set ns.names = ns.names + [ent_slug] %}
+          {% if mapped_clean not in ['', 'unknown', 'unavailable'] %}
+            {% set ns.names = ns.names + [mapped_slug] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.names | unique | list }}
       min_score: !input min_score
       require_clip: !input require_clip
       require_not_false_positive: !input require_not_false_positive

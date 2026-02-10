@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented here.
 
+## [0.3.4] - 2026-02-10
+- Add optional camera override map to match Frigate camera names when HA entity ids differ.
+
 ## [0.3.3] - 2025-10-27
 - Reduce auto per-camera cooldown to 25 seconds so LLMVision summaries are not skipped by the generated silence window.
 
