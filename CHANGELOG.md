@@ -2,10 +2,13 @@
 
 All notable changes to this project will be documented here.
 
-## [3.0.5] - 2026-02-10
+## [0.3.6] - 2026-02-10
+- Add optional requirement for zones to be present before the initial notification.
+
+## [0.3.5] - 2026-02-10
 - Fix mobile notification action - use HA-recommended default handling for missing trigger payloads.
 
-## [3.0.4] - 2026-02-10
+## [0.3.4] - 2026-02-10
 - Add optional camera override map to match Frigate camera names when HA entity ids differ.
 
 ## [0.3.3] - 2025-10-27

@@ -52,6 +52,7 @@
   - `input_text` for the **per-camera silence table** (optional, recommended)
   - `input_boolean` as a simple **LLM “busy” gate** when several cameras run in parallel (optional)
 - **Camera name override map** (optional): JSON map to align HA camera entity ids with Frigate camera names.
+- **Require zones on initial send** (optional): skip the first notification until zones are populated.
 
 ---
 
@@ -60,12 +61,13 @@
 1. **Import** the blueprint and **create an automation** from it.  
 2. **Pick your cameras** and **notification devices**.  
 3. (Optional) Add **Camera name override map** if your HA camera entity ids do not match Frigate camera names.  
-4. (Optional) Turn on **iOS Notification** if you send to iPhones/iPads - this enables the HLS stream path.  
-5. (Optional) Add **zones** to include/exclude and set match type/logic.  
-6. (Optional) Enable **LLMVision** by selecting a provider/model.  
-7. (Optional) Add **Global cooldown** helper: choose an `input_datetime` so back-to-back alerts are throttled.
-8. (Recommended) Add **Per-camera silence table** helper: select an `input_text`. The blueprint initializes it automatically.
-9. **Save** and test.
+4. (Optional) Turn on **Require zones on initial send** if you want to avoid early notifications before zones populate.  
+5. (Optional) Turn on **iOS Notification** if you send to iPhones/iPads - this enables the HLS stream path.  
+6. (Optional) Add **zones** to include/exclude and set match type/logic.  
+7. (Optional) Enable **LLMVision** by selecting a provider/model.  
+8. (Optional) Add **Global cooldown** helper: choose an `input_datetime` so back-to-back alerts are throttled.
+9. (Recommended) Add **Per-camera silence table** helper: select an `input_text`. The blueprint initializes it automatically.
+10. **Save** and test.
 
 ---
 

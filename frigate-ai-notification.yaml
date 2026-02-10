@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [0.3.5] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [0.3.6] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -266,6 +266,13 @@ blueprint:
           description: Optional. Full base URL to your Frigate UI (include port if needed), e.g. https://frigate.lan:8971
           default: ""
           selector: { text: {} }
+        require_zones:
+          name: Require Zones On Initial Send
+          description: >
+            Optional. When enabled, the initial "new" notification is sent only after zones are present in the event.
+            This can reduce early sends before Frigate populates entered/current zones.
+          default: false
+          selector: { boolean: {} }
         camera_name_map:
           name: Camera Name Override Map (optional)
           description: >
@@ -349,6 +356,7 @@ action:
       input_base_url: !input base_url
       input_local_url: !input local_url
       input_frigate_url: !input frigate_url
+      input_require_zones: !input require_zones
       input_camera_name_map: !input camera_name_map
       input_cooldown_datetime: !input cooldown_timestamp
       input_silence_table: !input silence_table
@@ -457,6 +465,7 @@ action:
         {% else %}
           {{ (event_zones_entered + event_zones_current) | unique | list }}
         {% endif %}
+      zones_known: "{{ (event_zones_checked | length) > 0 }}"
 
       zone_match: >-
         {% set Z = (event_zones_checked | default([], true)) | map('lower') | list %}
@@ -669,6 +678,8 @@ action:
       - conditions:
           - condition: template
             value_template: "{{ zone_match }}"
+          - condition: template
+            value_template: "{{ (not input_require_zones) or zones_known }}"
           - condition: template
             value_template: "{{ not cooldown_active }}"
           - condition: template
