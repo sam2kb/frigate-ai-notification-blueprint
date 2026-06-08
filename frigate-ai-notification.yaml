@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [0.3.6] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [0.3.7] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -374,7 +374,7 @@ action:
       # auto-cooldown (hardcoded): 25 seconds after sending a push for this camera
       auto_silence_secs: 25
 
-      silence_table_enabled: "{{ (input_silence_table | string) | length > 0 }}"
+      silence_table_enabled: "{{ (input_silence_table | default('', true) | string | trim) | length > 0 }}"
       silence_raw: "{{ states(input_silence_table) if input_silence_table else '' }}"
       silence_raw_norm: "{{ (silence_raw | default('', true) | trim) }}"
       silence_is_empty: "{{ silence_raw_norm in ['', 'unknown', 'unavailable'] }}"
@@ -537,6 +537,10 @@ action:
         {% set value = configured if configured else fallback %}
         {{ (value or base_url) | trim | regex_replace('/+$', '') }}
 
+      # Best available absolute base URL; used to ensure notification links are
+      # absolute (Android requires absolute URLs; iOS tolerates relative ones).
+      effective_base_url: "{{ (base_url or local_url or '') | trim }}"
+
       base_title: "{{ label }} detected"
       base_message: "{{ label }} detected by {{ camera_name }}."
       title: "{{ base_title }}"
@@ -551,12 +555,12 @@ action:
       snapshot_path: "/api/frigate/notifications/{{ id }}/snapshot.jpg"
       thumbnail_path: "/api/frigate/notifications/{{ id }}/thumbnail.jpg"
 
-      clip_url: "{{ (base_url ~ clip_path) if base_url else clip_path }}"
+      clip_url: "{{ (effective_base_url ~ clip_path) if effective_base_url else clip_path }}"
       clip_url_signed: "{{ clip_url }}?sign=true"
-      snapshot_url: "{{ (base_url ~ snapshot_path) if base_url else snapshot_path }}"
-      thumbnail_url: "{{ (base_url ~ thumbnail_path) if base_url else thumbnail_path }}"
+      snapshot_url: "{{ (effective_base_url ~ snapshot_path) if effective_base_url else snapshot_path }}"
+      thumbnail_url: "{{ (effective_base_url ~ thumbnail_path) if effective_base_url else thumbnail_path }}"
       thumbnail_android_url: "{{ thumbnail_url ~ '?format=android' }}"
-      video_ios: "/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8"
+      video_ios: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8"
       live_deeplink: "entityId:camera.{{ camera }}"
 
       has_clip: "{{ (payload.get('after') or {}).get('has_clip', false) }}"

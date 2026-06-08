@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here.
 
+## [0.3.7] - 2026-06-08
+- Fix notification tap/action URLs to be absolute on all platforms (Android requires absolute URLs; iOS was tolerant of relative paths).
+- Add `effective_base_url` that falls back through `base_url` → `local_url` so `video_ios`, `clip_url`, `snapshot_url`, and `thumbnail_url` are never left relative.
+- Fix `silence_table_enabled` always evaluating as truthy when no per-camera silence table was configured, which caused the auto-cooldown to attempt writes against a nonexistent entity.
+
 ## [0.3.6] - 2026-02-10
 - Add optional requirement for zones to be present before the initial notification.
 
