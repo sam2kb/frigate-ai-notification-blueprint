@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [0.3.7] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [0.3.8] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -136,6 +136,17 @@ blueprint:
           name: Ignore Likely False Positives
           default: true
           selector: { boolean: {} }
+
+        suppress_known_faces:
+          name: Suppress Known Faces
+          description: >-
+            Comma-separated list of recognized face names to suppress. Names with spaces are fine
+            (e.g. "John Doe"). Matches case-insensitively against Frigate's sub_label. Leave empty
+            to notify on all faces. Example: Alice, John Doe, Mary Jane
+          default: ""
+          selector:
+            text:
+              multiline: false
 
     llmvision_tweaks:
       name: LLMVision Tweaks
@@ -356,6 +367,7 @@ action:
       input_base_url: !input base_url
       input_local_url: !input local_url
       input_frigate_url: !input frigate_url
+      input_suppress_faces: !input suppress_known_faces
       input_require_zones: !input require_zones
       input_camera_name_map: !input camera_name_map
       input_cooldown_datetime: !input cooldown_timestamp
@@ -690,6 +702,10 @@ action:
             value_template: "{{ not camera_silenced }}"
           - condition: template
             value_template: >
+              {% set names = (input_suppress_faces | default('', true) | string | trim).split(',') | map('trim') | select('ne','') | map('lower') | list %}
+              {{ names | length == 0 or (sub_label_text | lower | trim) not in names }}
+          - condition: template
+            value_template: >
               {% set a = payload.get('after', {}) or {} %}
               {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
               {% set score_ok = best >= (min_score | float(0)) %}
@@ -1022,6 +1038,10 @@ action:
                   value_template: "{{ not camera_silenced_now }}"
                 - condition: template
                   value_template: >
+                    {% set names = (input_suppress_faces | default('', true) | string | trim).split(',') | map('trim') | select('ne','') | map('lower') | list %}
+                    {{ names | length == 0 or (sub_label_text | lower | trim) not in names }}
+                - condition: template
+                  value_template: >
                     {% set a = event_after or {} %}
                     {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
                     {% set score_ok = best >= (min_score | float(0)) %}
@@ -1124,6 +1144,10 @@ action:
           - condition: template
             value_template: "{{ zone_match_final | default(false) }}"
           - condition: template
+            value_template: >
+              {% set names = (input_suppress_faces | default('', true) | string | trim).split(',') | map('trim') | select('ne','') | map('lower') | list %}
+              {{ names | length == 0 or (sub_label_text | lower | trim) not in names }}
+          - condition: template
             value_template: >-
               {% set a = payload.get('after', {}) or {} %}
               {% set best = (a.get('top_score') if a.get('top_score') is not none else a.get('score', 1)) | float(1) %}
@@ -1206,6 +1230,10 @@ action:
           - condition: template
             value_template: >-
               {{ (zone_match is defined and zone_match) or (zone_match_final is defined and zone_match_final) }}
+          - condition: template
+            value_template: >
+              {% set names = (input_suppress_faces | default('', true) | string | trim).split(',') | map('trim') | select('ne','') | map('lower') | list %}
+              {{ names | length == 0 or (sub_label_text | lower | trim) not in names }}
           - condition: template
             value_template: >-
               {% if not silence_table_enabled %}true{% else %}

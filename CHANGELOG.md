@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented here.
 
+## [0.3.8] - 2026-06-08
+- Add `Suppress Known Faces` input (Quality Filters): comma-separated list of recognized face names to silence. Matches against Frigate's `sub_label` from native face recognition. Applies to initial, update, final, and LLM notifications.
+
 ## [0.3.7] - 2026-06-08
 - Fix notification tap/action URLs to be absolute on all platforms (Android requires absolute URLs; iOS was tolerant of relative paths).
 - Add `effective_base_url` that falls back through `base_url` → `local_url` so `video_ios`, `clip_url`, `snapshot_url`, and `thumbnail_url` are never left relative.
