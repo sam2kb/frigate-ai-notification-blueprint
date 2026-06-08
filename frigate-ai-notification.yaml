@@ -206,10 +206,10 @@ blueprint:
               multiple: false
         max_tokens:
           name: Maximum Tokens
-          description: Limit the number of tokens used in the summary (controls length).
-          default: 20
+          description: Limit the number of tokens used in the summary (controls length). Increase for modern models (e.g. 200+ for GPT-5).
+          default: 100
           selector:
-            number: { min: 1, max: 100, step: 1, mode: slider }
+            number: { min: 1, max: 4000, step: 10, mode: slider }
         temperature:
           name: Temperature
           description: Adjusts response randomness. Lower values yield more accurate, consistent results; higher values are more creative.
@@ -1291,7 +1291,7 @@ action:
                     title: "{{ title }}"
                     message: "{{ message }}"
                     data:
-                      channel: "{{ camera }}_notifications"
+                      channel: "{{ camera_name }} Notifications"
                       timeout: "{{ timeout_secs }}"
                       tag: "{{ tag_key }}"
                       group: "{{ camera_name }}"

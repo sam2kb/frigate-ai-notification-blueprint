@@ -6,6 +6,8 @@ All notable changes to this project will be documented here.
 - Fix notification tap/action URLs to be absolute on all platforms (Android requires absolute URLs; iOS was tolerant of relative paths).
 - Add `effective_base_url` that falls back through `base_url` → `local_url` so `video_ios`, `clip_url`, `snapshot_url`, and `thumbnail_url` are never left relative.
 - Fix `silence_table_enabled` always evaluating as truthy when no per-camera silence table was configured, which caused the auto-cooldown to attempt writes against a nonexistent entity.
+- Fix LLM notification channel mismatch: LLM summary used `{{ camera }}_notifications` while initial/update/final used `{{ camera_name }} Notifications`, preventing Android from replacing the camera card with the LLM summary.
+- Raise default `max_tokens` from 20 to 100 and expand slider range to 4000; modern models (GPT-5, etc.) need higher limits to avoid truncated summaries.
 
 ## [0.3.6] - 2026-02-10
 - Add optional requirement for zones to be present before the initial notification.
