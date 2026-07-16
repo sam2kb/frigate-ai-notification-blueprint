@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [0.3.8] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
+    [0.3.9] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
     It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -163,6 +163,17 @@ blueprint:
           selector:
             entity:
               domain: [input_boolean]
+              multiple: false
+        log_helper:
+          name: AI Description Log Helper
+          description: >
+            Optional Input Text helper to persist AI-generated descriptions beyond the notification.
+            Create an Input Text helper (e.g. "Frigate AI Log"), leave its value empty, and select it here.
+            Each LLMVision summary is appended with timestamp, camera, and label so you can display it on a markdown card.
+          default: ""
+          selector:
+            entity:
+              domain: [input_text]
               multiple: false
         dashboard:
           name: Event Summary Dashboard
@@ -1290,6 +1301,25 @@ action:
                   These images have already been passed to DeepStack and Double Take and {{ sub_label_text }} has been identified, use this knowledge as well.
                 {% endif %}
             response_variable: response
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (input_log_helper | default('', true) | string | trim) | length > 0 }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: "{{ input_log_helper }}"
+                      value: >-
+                        {% set ts = now().strftime('%Y-%m-%d %H:%M') %}
+                        {% set entry_title = response.response_title | default('', true) | trim %}
+                        {% set entry_body = response.response_text | default('', true) | trim %}
+                        {% set old = states(input_log_helper) | default('', true) %}
+                        {% set header = '[' ~ ts ~ '] ' ~ camera_name ~ ' — ' ~ label %}
+                        {% if entry_title and entry_title != '' %}
+                          {% set header = header ~ ': ' ~ entry_title %}
+                        {% endif %}
+                        {{ header ~ '\n' ~ entry_body ~ '\n---\n' ~ old }}
 
           - choose:
               - conditions:

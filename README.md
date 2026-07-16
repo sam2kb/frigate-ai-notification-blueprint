@@ -64,10 +64,11 @@
 4. (Optional) Turn on **Require zones on initial send** if you want to avoid early notifications before zones populate.  
 5. (Optional) Turn on **iOS Notification** if you send to iPhones/iPads - this enables the HLS stream path.  
 6. (Optional) Add **zones** to include/exclude and set match type/logic.  
-7. (Optional) Enable **LLMVision** by selecting a provider/model.  
-8. (Optional) Add **Global cooldown** helper: choose an `input_datetime` so back-to-back alerts are throttled.
-9. (Recommended) Add **Per-camera silence table** helper: select an `input_text`. The blueprint initializes it automatically.
-10. **Save** and test.
+7. (Optional) Enable **LLMVision** by selecting a provider/model.
+8. (Optional) Add **AI Description Log Helper**: select an `input_text` to persist LLM-generated descriptions for a scrollable log page on any dashboard.
+9. (Optional) Add **Global cooldown** helper: choose an `input_datetime` so back-to-back alerts are throttled.
+10. (Recommended) Add **Per-camera silence table** helper: select an `input_text`. The blueprint initializes it automatically.
+11. **Save** and test.
 
 ---
 
@@ -132,6 +133,28 @@ You can tweak:
 - Whether to expose images for richer notifications
 
 Leave the **Provider** blank to turn AI off.
+
+### 📝 AI Description Log
+
+When you configure the **AI Description Log Helper** (`input_text`) under LLMVision Tweaks, every LLM-generated summary is persisted to the helper — even after the notification is dismissed.
+
+Each entry is prepended with a timestamp, camera name, and label:
+
+```
+[2026-07-16 01:43] Back Yard Camera — person: Person walking across driveway
+A person was observed walking across the driveway carrying a package toward the front door.
+---
+[2026-07-16 01:35] Front Door — package: Delivery driver drops off package
+A delivery driver in a blue uniform approached the front door and placed a package on the doorstep.
+---
+```
+
+To display it, add a **Markdown card** to any dashboard pointing at the helper:
+
+```yaml
+type: markdown
+content: "{{ states('input_text.frigate_ai_log') }}"
+```
 
 ---
 

@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented here.
 
+## [0.3.9] - 2026-07-16
+- Add optional AI Description Log Helper (`input_text`) under LLMVision Tweaks. When configured, every LLM-generated summary is persisted to the helper with timestamp, camera, and label. Display it on any dashboard with a markdown card for a scrollable event log.
+
 ## [0.3.8] - 2026-06-08
 - Add `Suppress Known Faces` input (Quality Filters): comma-separated list of recognized face names to silence. Matches against Frigate's `sub_label` from native face recognition. Applies to initial, update, final, and LLM notifications.
 
