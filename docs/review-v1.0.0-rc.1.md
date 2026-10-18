@@ -3,6 +3,10 @@
 - **Commit reviewed:** `baa271b4` — "Prepare v1.0.0-rc.1 for Home Assistant 2026 and Frigate 0.18"
 - **Compared with:** `main` at `d5ae79cc` (0.3.9)
 - **Reviewed:** 2026-10-18
+- **Revision 2 (2026-10-18):** re-reviewed against the `home-assistant-best-practices` skill
+  (blueprint guide, triggers and conditions, automation actions, template guidelines). No Home
+  Assistant instance was reachable, so version-specific behaviour rests on the package-pinned test
+  runs below, not on a live instance's reported version.
 - **Method:** static review of every changed file; the regression suite executed on
   Home Assistant 2026.3.0 and 2026.10.2 (Python 3.14); the upstream contract check executed
   against the pinned revisions; and a read of the upstream sources the blueprint actually calls
@@ -24,8 +28,15 @@ the per-device platform handling, the silence-table overflow, and the AI log len
 The default notification path now behaves as the README describes, and the test suite is
 substantially better than anything the repository had before.
 
+The second pass, against the Home Assistant best-practice skill, found no structural violations:
+the blueprint uses typed selectors, input sections, `!input`-to-variable binding, correct variable
+ordering and a justified parallel mode. What it did find is mostly input-shape and idiom level —
+a label picker that cannot express real Frigate labels, JSON in a text field where an `object`
+selector exists, and two `trigger.id` templates where `condition: trigger` is native.
+
 It is not ready to be labelled 1.0.0 without changes: one merge blocker, one silent breaking change,
-one likely-broken tap target, and no CI. None of them needs a redesign; all are small.
+one likely-broken tap target, and no CI. None of them needs a redesign; all are small. The
+best-practice pass adds no blocker of its own.
 
 ## Verification results
 
@@ -182,17 +193,18 @@ Companion docs describe `alert_once` as Android behaviour; the iOS quiet-update 
 an iPhone and document the expectation, or add a minimum interval / score delta for snapshot-triggered
 updates.
 
-### M4. `min_version: 2026.3.0` is inherited from the integration, not from the blueprint
+### M4. `min_version` does not gate anything the blueprint uses
 
-Nothing in the blueprint obviously requires 2026.3: it uses `from_json` with a default (present in
-2026.3), `config_entry_attr`, `!input` inside an MQTT topic, and standard template helpers. The
-`2026.3.0` floor comes from the Frigate integration's `hacs.json`, which is a different product with a
-different release cadence.
+The blueprint guide sets `homeassistant.min_version` to cover a feature the file actually uses — input
+sections need 2024.6, the modern in-item `trigger:` key and `if`/`then` actions 2024.10, and so on.
+Nothing here needs 2026.3: the file uses input sections, in-item `trigger:`, `if`/`then`,
+`from_json` with a default and `config_entry_attr`. The `2026.3.0` floor comes from the Frigate
+integration's `hacs.json`, a different product with a different release cadence.
 
-That hard-gates the import dialog on 2026.1/2026.2 installations that would probably run the
-blueprint fine. Decide whether this is a support statement ("tested on 2026.3+, may work on older
-versions") or a real gate; if it is a gate, say so in the README so users know why the import is
-refused.
+The effect is a hard refusal at import on 2026.1/2026.2 installations that would very likely run it,
+for a feature the blueprint does not use. Either lower it to the real floor (keeping "tested on
+2026.3+" as a README statement), or keep the gate and say in the README that older versions are
+refused deliberately. If `note:` annotations are added later, the floor becomes 2026.6.
 
 ### M5. README statements that do not match the code
 
@@ -202,6 +214,27 @@ refused.
 - `README.md:55` calls the global cooldown "NOT recommended", while `README.md:73` (Quick Start step 9)
   tells users to add it. Pick one position.
 - `README.md:11` ("Import the v1 Candidate") and the badge need rewriting at merge (see B1).
+
+### M6. The label selector cannot express most Frigate labels
+
+`frigate-ai-notification.yaml:27-36` fixes the options to `person, dog, cat, car, package, bicycle,
+face` and sets `custom_value: false`. Frigate's stock model also emits `truck`, `motorcycle`, `bird`,
+`bus`, `horse`, and custom models add their own labels; none of them can be selected. The only
+workaround is leaving the list empty, which switches the automation to every label — the opposite of
+the low-noise goal.
+
+Set `custom_value: true` on the `select` selector (the picker stays, and users can type a label), or
+accept a comma-separated text list like `zones` does. Stored values are unaffected either way.
+
+### M7. `camera_name_map` is JSON in a free-text field
+
+`frigate-ai-notification.yaml:305-314` asks for a JSON object in a multiline text field and parses it
+with `from_json({})` at `:405`. Home Assistant has an `object` selector for exactly this: it validates
+the shape in the UI and hands the action a mapping, removing the parse-and-check path.
+
+Changing the selector changes what existing automations have stored (a string today), so if it is
+switched, keep the `is string → from_json` branch so old instances retain their map. Not required,
+but it is the native construct for structured input.
 
 ## Low / editorial
 
@@ -217,6 +250,17 @@ refused.
 - `test_blueprint_and_automation_schemas` compares the *installed* HA version with `min_version`
   (`tests/test_blueprint.py:220`) — true by construction in the pinned environment. It does not show
   older versions would work.
+- `frigate-ai-notification.yaml:438` and `:496` compare `trigger.id` inside a template.
+  `condition: trigger` with `id:` is the native condition: validated at load, and it cannot silently
+  pass if a trigger loses its id.
+- Template conditions mix the shorthand (`conditions: "{{ … }}"`) and the long form
+  (`condition: template`) within a few lines (`:438` vs `:441`). Cosmetic; the shorthand is preferred.
+- No `note:` annotations (2026.6). Intent notes on the retry loop, the cooldown exemption and the
+  zone matcher would make the saved automation self-documenting in the UI, at the cost of raising
+  `min_version` (M4).
+- The file keeps the pre-2024.8 aliases: 16 `- service:` calls and the singular top-level
+  `trigger:`/`action:` keys, while already requiring 2026.3. `action:`, `triggers:` and `actions:` are
+  the current forms; the switch is mechanical and the schema tests cover it.
 
 ## Test-coverage gaps
 
@@ -239,6 +283,32 @@ The suite is the strongest part of the branch, but it does not cover:
 - **`mqtt_topic`** with a non-default prefix.
 - **AI options.** `max_tokens`, `temperature`, `generate_title` values are only checked against a mock.
 
+## Home Assistant best-practice checklist
+
+Full pass against the skill's blueprint, trigger/condition, action and template guidance. The table
+records verdicts, not new findings; the actionable items are the B/M/L numbers above.
+
+| Practice | Verdict |
+| --- | --- |
+| Blueprint metadata complete (`name`, `description`, `domain`, `author`, `source_url`, `min_version`) | yes, but `source_url` points at the branch (B1) and `min_version` gates nothing (M4) |
+| Input keys treated as a public API | **verified**: none of 0.3.9's keys removed; `mqtt_topic` added with a default |
+| Typed selectors instead of free text for entities, devices and numbers | yes — `entity`, `device`, `duration`, `number`, `select`, `config_entry`; text remains only for the MQTT topic and the JSON map (M7) |
+| `!input` never used inside a template | **verified**: none; inputs are bound to variables first |
+| Sections and collapsed advanced groups | yes |
+| No `default:` on the entities the blueprint acts on | yes — cameras and notify devices are required |
+| Native conditions before templates | two misses (`trigger.id` → `condition: trigger`); the rest read MQTT payload data, where templates are appropriate |
+| `wait_template` for a condition that may already hold | yes — the busy helper; a `wait_for_trigger` there would deadlock if it were already off |
+| Mode matches the work | `parallel` for independent per-event notifications; `max: 25` and its drop behaviour are documented |
+| Variables render in dependency order | **verified**: no forward references; the staged `- variables:` steps keep the overwrite semantics the design needs |
+| `continue_on_error` used sparingly | yes, but on the analyzer it swallows the reason (M1) |
+| `stop:` with a reason | yes |
+| Current action/trigger keys | no — 16 `service:` calls and singular top-level `trigger:`/`action:` aliases, though the file requires 2026.3 (L) |
+| `note:` annotations | none (L) |
+| Repeated Jinja kept in one place | yes — YAML anchors for the silence/cooldown/provider checks, one `event_checks` loop for both snapshots |
+| Helper choice | `input_datetime` for the cooldown, `input_boolean` for the busy flag and `input_text` for the mute map are the available primitives; the JSON map is a documented, bounded workaround |
+| Work ordered before the expensive part | yes — the camera/label gate precedes zone-regex construction, so unrelated MQTT traffic stops early |
+| Templates avoided where a native construct exists | mostly; the payload-driven filters have no native equivalent |
+
 ## What is good
 
 - The `new`/`update`/`end` handling removes the old loop's two failure modes (END lost after 30 s of
@@ -254,6 +324,15 @@ The suite is the strongest part of the branch, but it does not cover:
 - The documentation is unusually honest about the busy-helper race, restart behaviour and missing
   live testing.
 - The contract check's pinned blob hashes are a good pattern.
+- Blueprint shape follows the guide: complete metadata, typed selectors, sections with collapsed
+  advanced groups, inputs bound to variables, `!input` never inside a template, and no defaults on
+  the entities the blueprint acts on.
+- Input-key compatibility is intact: all 40 keys from 0.3.9 survive and `mqtt_topic` was added with a
+  default, so re-importing does not break existing automations.
+- Variable blocks render in dependency order, and YAML anchors keep the silence, cooldown and
+  provider checks in one place.
+- `wait_template` for the busy flag and `parallel` mode are the right native choices, with the
+  concurrency limit documented.
 
 ## Release checklist
 
@@ -265,6 +344,11 @@ The suite is the strongest part of the branch, but it does not cover:
 - [ ] H3: debug log before the camera/label gate.
 - [ ] M2: `use_memory`; drop or document `temperature`; assert every sent AI key upstream.
 - [ ] M5: README fixes.
+- [ ] M6: allow custom labels in the label picker (or accept a text list).
+- [ ] M4: decide whether `min_version` is a support statement or a gate; align it with a used feature
+      (and 2026.6 if `note:` annotations are added).
+- [ ] Optional: `condition: trigger` (L), `object` selector for `camera_name_map` (M7), `note:`
+      annotations.
 - [ ] Live test: one Android and one iOS device, Wi-Fi and mobile data; a real AI summary; a Silence
       tap; a camera-override install; a zone-filtered event.
 - [ ] At merge: `[1.0.0-rc.1]` → `[1.0.0]` in `blueprint.description` and a `1.0.0` CHANGELOG entry.
