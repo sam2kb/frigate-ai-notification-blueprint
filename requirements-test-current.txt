@@ -1,0 +1,2 @@
+# Python 3.14; current Home Assistant compatibility check.
+homeassistant==2026.10.2

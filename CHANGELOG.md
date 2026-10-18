@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.0-rc.1] - 2026-10-17
+- First v1 release candidate, published on `codex/v1-candidate`. Requires Home Assistant 2026.3+; live installation testing remains outstanding.
+- Compare actual Home Assistant provider-state enum values and recheck readiness after delays and retries, preventing loaded providers from being skipped and unloaded providers from latching the busy helper.
+- Read LLMVision's generated `title`, retain the legacy title fallback, and reject null or empty summary text.
+- Skip deleted devices and unloaded mobile app entries. Build playback links and actions per device so mixed Apple/Android recipients retain Android's three-button limit.
+- Fix zone exclusions and `all` matching, anchor wildcard patterns to full zone IDs, and respect the selected current/entered zone mode.
+- Process MQTT `new`, `update`, and `end` messages directly so notification work and timeouts cannot leave gaps in an event listener. Final notifications use final event data.
+- Apply score, recording, false-positive, zone, and known-face filters to AI analysis as well as notifications. Handle native Frigate `[name, score]` face labels.
+- Remove the hardcoded per-camera auto-mute. Preserve manual silence and configurable global cooldown, while allowing an event's final card to receive its AI summary.
+- Recheck silence and competing cooldowns after AI waits and retries; release the busy helper on reported analyzer failures. Skip unloaded providers.
+- Repair the AI log helper input, limit preview text to the helper's capacity, and use real line breaks. Validate silence JSON, prune expired mutes when saving, clamp requested durations, and report a full silence table.
+- Use Companion app relative media URLs by default, with explicit HA URL overrides. Remove unsupported URL autodetection, fake URL signing, and the nonexistent HA review route. Add the iOS tap URL and correct top-level Android delivery options.
+- Keep Android notifications within three action buttons and replace the final event card with its AI summary. Preserve mapped camera entity IDs for live links.
+- Add a configurable MQTT event topic and use the selected AI provider's default model when Model is blank. Require Home Assistant 2026.3+, matching the verified Frigate integration, and use HA's built-in JSON parsing fallback for helper values.
+- Add Home Assistant script-engine regression tests using real config entries and devices, plus repeatable checks of Frigate 0.18 MQTT fields, media routes, HA notification-proxy mapping, and LLMVision response fields and event-ID resolution.
+
 ## [0.3.9] - 2026-07-16
 - Add optional AI Description Log Helper (`input_text`) under LLMVision Tweaks. When configured, every LLM-generated summary is persisted to the helper with timestamp, camera, and label. Display it on any dashboard with a markdown card for a scrollable event log.
 
