@@ -1,3 +1,5 @@
 # Python 3.14; matches the verified Frigate integration's HA minimum.
 --constraint https://raw.githubusercontent.com/home-assistant/core/2026.3.0/homeassistant/package_constraints.txt
 homeassistant==2026.3.0
+# Import HA's actual MQTT trigger without connecting to a broker.
+paho-mqtt==2.1.0

@@ -17,7 +17,7 @@ Normal notifications and AI analysis share the event filters. END messages use t
 
 ## Automated checks
 
-The regression suite runs the blueprint's actions through Home Assistant's real script engine, input helpers, config entries and device registry. It also validates the blueprint and automation schemas. Test entries represent loaded and unloaded integrations; delivery services and AI responses are simulated. Most delays advance a controlled clock. Busy-helper queue tests wait for actual HA state changes.
+The regression suite loads the YAML with Home Assistant's blueprint loader and substitutes inputs using HA's blueprint model, then runs the actions through its real script engine, input helpers, config entries and device registry. Trigger tests exercise HA's MQTT JSON parser and event-bus listeners, including a custom MQTT topic. The broker subscription transport, phone deliveries and AI responses are simulated. Most delays advance a controlled clock. Busy-helper queue tests wait for actual HA state changes, including two overlapping END runs on one script.
 
 The fresh review replaced the provider-state template stub with real `ConfigEntryState` objects. This exposed an enum-versus-string comparison that skipped AI analysis. Tests now cover that behavior, provider unloads during waits/retries, current and legacy title fields, null response text, deleted/unloaded devices, and mixed Apple/Android delivery.
 
@@ -31,7 +31,9 @@ python3.14 -m venv .codex/ha-test
 
 For Home Assistant 2026.10.2, create a separate Python 3.14 environment and install `requirements-test-current.txt`, then run the same tests.
 
-The upstream contract check downloads public source at the pinned revisions, verifies its Git blob hashes, checks API routes, MQTT fields and LLMVision response fields, and executes the integration's notification URL mapper and LLMVision's event-ID resolver in isolation:
+The [compatibility workflow](../.github/workflows/compatibility.yml) runs both pinned environments and resolves the latest stable HA release from PyPI for a third job. It fails if that release needs a newer Python instead of silently testing an older compatible HA version. Pushes and pull requests run the workflow immediately. GitHub's weekly schedule starts once the workflow is on the default branch; candidate-branch pushes still run all three jobs.
+
+The upstream contract check downloads public source at the pinned revisions and verifies its Git blob hashes. It checks API routes and object fields, executes Frigate's actual MQTT serialization statements to verify `before`/`after` and event types, and checks every analyzer data key sent by the blueprint against LLMVision's service fields. It also checks response fields and executes the integration's notification URL mapper and LLMVision's event-ID resolver in isolation:
 
 ```sh
 .codex/ha-test/bin/python tests/check_frigate_018.py
@@ -44,7 +46,13 @@ Downloaded source stays in the ignored `.codex/upstream/` directory. The check d
 
 Enable MQTT and install a Frigate HA integration release that supports Frigate 0.18. Match the blueprint's MQTT topic to Frigate's `topic_prefix`. Use camera and zone IDs from the Frigate config, including any camera override mapping required by HA entity IDs.
 
+When upgrading from 0.3.x, review include and exclude patterns. V1 matches full zone IDs: `porch` matches only `porch`, while `*porch*` also matches `front_porch`. Review privacy exclusions before enabling the updated automation. Debugging logs show rejected camera/label/type/payload reasons and observed zone IDs.
+
 Enable recording retention for clips and video analysis. Keep the integration's notification proxy enabled and choose a proxy expiry long enough to open notifications. With both HA base URL inputs blank, the Companion app resolves relative media links against its sending server; test one notification on Wi-Fi and another on mobile data.
+
+For AI analysis, HA's URL selection must produce an address reachable from HA itself. Depending on the installation, this can come from its configured network URLs, cloud URL or detected local address. The blueprint's URL overrides affect phone links; LLMVision resolves event IDs independently. Configure temperature in the LLMVision provider. The saved blueprint Temperature input remains accepted but is ignored.
+
+View Live buttons and taps without retained media use the shared relative More Info URL documented by the [Companion apps](https://companion.home-assistant.io/docs/notifications/notifications-basic/#opening-a-url). Verify that it opens the mapped camera entity on each receiving phone.
 
 The automated checks verify event handling and source compatibility. Playback on a real phone, broker delivery, recording availability, and a real provider response still require an installation test. No live Frigate instance was used for this change.
 
@@ -56,4 +64,6 @@ Without a silence table, global mute turns the automation off and relies on a ru
 
 The automation allows 25 concurrent runs. Completed events waiting for AI occupy run slots. A busy installation can reach that limit and drop triggers; check HA's maximum-run warnings when sizing the automation. Global cooldown also uses a shared helper and is a best-effort throttle under simultaneous events.
 
-Verification for v1.0.0-rc.1: all 42 regression scenarios passed on Home Assistant 2026.3.0 and 2026.10.2 (Python 3.14). The upstream contract checks passed for Frigate 0.18.0 and 0.18.2.
+Android replacements use `alert_once`. iOS replacements retain active notification delivery and may sound or show banners again according to device settings. An update can be an event's first eligible notification, so the blueprint does not silence every update automatically.
+
+Verification for v1.0.0-rc.2: all 51 regression scenarios passed on Home Assistant 2026.3.0 and 2026.10.2 (Python 3.14). The strengthened upstream contract checks passed for Frigate 0.18.0 and 0.18.2. Live phone playback and provider verification remain outstanding.

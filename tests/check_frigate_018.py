@@ -59,6 +59,45 @@ def source(name):
     return text
 
 
+def mapping_nodes(value):
+    """Walk actual blueprint actions, including nested choose/repeat branches."""
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from mapping_nodes(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from mapping_nodes(child)
+
+
+def check_mqtt_serialization(objects):
+    """Execute upstream serialization statements, without starting Frigate."""
+    for handler, expected_types in (("update", ("new", "update")), ("end", ("end",))):
+        function = next(node for node in ast.walk(objects) if isinstance(node, ast.FunctionDef) and node.name == handler)
+        # Keep the real after/message assignments and events publish call, in
+        # source order. Frame processing/recording side effects stay out of scope.
+        statements = [
+            node for node in ast.walk(function)
+            if (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in {"after", "message"} for target in node.targets))
+            or (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+                and ast.unparse(node.value.func) == "self.dispatcher.publish")
+        ]
+        statements.sort(key=lambda node: node.lineno)
+        assert len(statements) == (3 if handler == "update" else 2)
+        module = ast.Module(body=statements, type_ignores=[])
+        for expected_type in expected_types:
+            before = {"id": "event-id", "false_positive": expected_type == "new", "has_clip": False}
+            after = before | {"false_positive": False, "has_clip": True, "top_score": .95}
+            published = []
+            obj = SimpleNamespace(previous=before, to_dict=lambda: after)
+            namespace = {"json": json, "obj": obj, "self": SimpleNamespace(dispatcher=SimpleNamespace(publish=lambda *args, **kwargs: published.append((args, kwargs))))}
+            exec(compile(ast.fix_missing_locations(module), "upstream_mqtt_serialization", "exec"), namespace)
+            assert len(published) == 1
+            (topic, payload), options = published[0]
+            assert topic == "events" and options == {"retain": False}
+            assert json.loads(payload) == {"before": before, "after": after, "type": expected_type}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", choices=("0.18.0", "0.18.2"), default="0.18.2")
@@ -106,9 +145,8 @@ def main():
     required = {"id", "camera", "label", "sub_label", "top_score", "score", "false_positive", "has_clip", "has_snapshot", "snapshot", "stationary", "entered_zones", "current_zones"}
     assert required <= fields, required - fields
     objects = ast.parse(sources["frigate_objects.py"])
-    constants = {node.value for node in ast.walk(objects) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
-    assert {"new", "update", "end", "events"} <= constants
-    print("PASS: Frigate 0.18 MQTT event types and all fields used by the blueprint")
+    check_mqtt_serialization(objects)
+    print("PASS: actual Frigate MQTT new/update/end serialization, before/after shape and required object fields")
 
     views = ast.parse(sources["ha_frigate_views.py"])
     proxy = next(node for node in views.body if isinstance(node, ast.ClassDef) and node.name == "NotificationsProxyView")
@@ -131,8 +169,15 @@ def main():
     print("PASS: actual HA Frigate proxy maps blueprint JPEG, MP4, HLS manifest and segment URLs")
 
     fields = yaml.safe_load(sources["llmvision_services.yaml"])["video_analyzer"]["fields"]
-    assert {"event_id", "provider", "model", "max_frames", "target_width", "max_tokens", "generate_title", "expose_images"} <= fields.keys()
-    print("PASS: LLMVision video_analyzer accepts Frigate event IDs and analysis options")
+    calls = [node for node in mapping_nodes(blueprint["action"]) if node.get("service", node.get("action")) == "llmvision.video_analyzer"]
+    assert calls, "No analyzer call found in blueprint"
+    required_fields = {key for key, config in fields.items() if config.get("required")}
+    for call in calls:
+        sent = call["data"].keys()
+        assert sent <= fields.keys(), f"Unsupported analyzer fields: {sent - fields.keys()}"
+        assert required_fields <= sent, f"Missing analyzer fields: {required_fields - sent}"
+        assert "event_id" in sent and call["data"]["store_in_timeline"] is True
+    print("PASS: every actual blueprint analyzer field is supported by the pinned LLMVision schema")
 
     providers = ast.parse(sources["llmvision_providers.py"])
     request = next(node for node in providers.body if isinstance(node, ast.ClassDef) and node.name == "Request")

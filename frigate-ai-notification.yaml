@@ -2,8 +2,8 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [1.0.0-rc.1] A clean, low-noise blueprint for smart multi-camera alerts powered by Frigate and (optionally) LLMVision.
-    It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
+    [1.0.0-rc.2] Multi-camera notifications powered by Frigate and optional LLMVision summaries.
+    Filter by detection quality, zones and recognized faces, with optional silence and cooldown controls.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/codex/v1-candidate/frigate-ai-notification.yaml
   domain: automation
   homeassistant:
@@ -33,13 +33,14 @@ blueprint:
           multiple: true
           options: [person, dog, cat, car, package, bicycle, face]
           sort: false
-          custom_value: false
+          custom_value: true
 
     zones:
       name: Include Zones
       description: >
         Comma-separated list of Frigate zone names. Example: driveway, porch.
-        Supports wildcards (* and ?), e.g. *_near to match all "..._near" zones. Leave empty to match all zones.
+        Matches full zone IDs, with wildcards (* and ?), e.g. *_near. Use *porch* for substring matching.
+        Leave empty to match all zones.
       default: ""
       selector:
         text: {}
@@ -48,6 +49,7 @@ blueprint:
       name: Exclude Zones
       description: >
         Zones that always suppress notifications. If an event matches both include and exclude, it is BLOCKED.
+        Matches full zone IDs; use *porch* to exclude every zone containing porch.
       default: ""
       selector:
         text: {}
@@ -240,8 +242,8 @@ blueprint:
           selector:
             number: { min: 1, max: 4000, step: 10, mode: slider }
         temperature:
-          name: Temperature
-          description: Adjusts response randomness. Lower values yield more accurate, consistent results; higher values are more creative.
+          name: Temperature (deprecated)
+          description: Retained for saved automations. This input is ignored; set temperature in the LLMVision provider configuration.
           default: 0.1
           selector:
             number: { min: 0.1, max: 1.0, step: 0.1, mode: slider }
@@ -384,7 +386,6 @@ action:
       input_max_frames: !input max_frames
       input_target_width: !input target_width
       input_max_tokens: !input max_tokens
-      input_temperature: !input temperature
       input_include_filename: !input include_filename
       input_generate_title: !input generate_title
       input_expose_images: !input expose_images
@@ -491,11 +492,24 @@ action:
                       entity_id: "{{ this.entity_id }}"
           - stop: Handled mobile action
 
+  - variables:
+      gate_rejections: >-
+        {% set ns = namespace(reasons=[]) %}
+        {% if raw_payload is not mapping or event_after | length == 0 %}{% set ns.reasons = ns.reasons + ['invalid_payload'] %}{% endif %}
+        {% if event_type not in ['new', 'update', 'end'] %}{% set ns.reasons = ns.reasons + ['unsupported_event_type'] %}{% endif %}
+        {% if not camera_entity %}{% set ns.reasons = ns.reasons + ['camera_unmatched'] %}{% endif %}
+        {% if id | string | length == 0 %}{% set ns.reasons = ns.reasons + ['missing_event_id'] %}{% endif %}
+        {% if input_labels | length > 0 and (event_after.get('label', '') | lower) not in (input_labels | map('lower') | list) %}{% set ns.reasons = ns.reasons + ['label_unselected'] %}{% endif %}
+        {{ ns.reasons }}
+  - choose:
+      - conditions: "{{ input_debug and trigger.id == 'frigate-event' and gate_rejections | length > 0 }}"
+        sequence:
+          - service: logbook.log
+            data:
+              name: Frigate Notification
+              message: "Rejected MQTT event: reasons={{ gate_rejections | join(', ') }} type={{ event_type }} camera={{ camera }} selected_cameras={{ selected_cameras }} label={{ event_after.get('label', '') }} selected_labels={{ input_labels }}. Check Camera Name Override Map for camera_unmatched."
   - condition: template
-    value_template: >-
-      {{ trigger.id == 'frigate-event' and event_type in ['new', 'update', 'end']
-         and camera_entity | length > 0 and id | string | length > 0
-         and (input_labels | length == 0 or (event_after.get('label', '') | lower) in (input_labels | map('lower') | list)) }}
+    value_template: "{{ trigger.id == 'frigate-event' and gate_rejections | length == 0 }}"
 
   - variables:
       zones_include_rx: >-
@@ -543,7 +557,8 @@ action:
           {% set quality_ok = score >= (min_score | float) and (not require_clip or a.get('has_clip', false)) and (not require_not_false_positive or a.get('false_positive') in [false, none]) %}
           {% set zone_ok = ns.included and not ns.excluded and (not input_require_zones or Z | length > 0) %}
           {% set face_ok = name | lower not in suppressed_names %}
-          {% set out.checks = out.checks + [dict(allowed=(quality_ok and zone_ok and face_ok), quality_ok=quality_ok, zone_ok=zone_ok, face_ok=face_ok, zones=Z, name=name, score=score)] %}
+          {% set zone_reason = 'excluded' if ns.excluded else 'include_unmatched' if not ns.included else 'zone_data_required' if input_require_zones and Z | length == 0 else 'allowed' %}
+          {% set out.checks = out.checks + [dict(allowed=(quality_ok and zone_ok and face_ok), quality_ok=quality_ok, zone_ok=zone_ok, zone_reason=zone_reason, face_ok=face_ok, zones=Z, name=name, score=score)] %}
         {% endfor %}
         {{ out.checks }}
       before_checks: "{{ event_checks[0] }}"
@@ -574,7 +589,7 @@ action:
       snapshot_url: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/snapshot.jpg"
       thumbnail_url: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/thumbnail.jpg"
       video_ios: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8"
-      live_deeplink: "entityId:{{ camera_entity }}"
+      live_deeplink: "/?more-info-entity-id={{ camera_entity }}"
       frigate_review_url: "{{ input_frigate_url | trim | regex_replace('/+$', '') }}"
       notification_title: "{{ (sub_label_text ~ ' detected') if sub_label_text else base_title }}"
       notification_message: "{{ base_message ~ (' (' ~ sub_label_text ~ ')' if sub_label_text else '') }}"
@@ -587,7 +602,7 @@ action:
           - service: logbook.log
             data:
               name: Frigate Notification
-              message: "{{ event_type }}: camera={{ camera }} id={{ id }} eligible={{ checks.allowed }} quality={{ checks.quality_ok }} zones={{ checks.zone_ok }} face={{ checks.face_ok }}"
+              message: "{{ event_type }}: camera={{ camera }} id={{ id }} eligible={{ checks.allowed }} quality={{ checks.quality_ok }} zones={{ checks.zone_ok }} zone_reason={{ checks.zone_reason }} observed_zones={{ checks.zones }} include={{ input_zones }} exclude={{ input_zones_exclude }} face={{ checks.face_ok }}. Zone patterns match full IDs; use *porch* for substring matching."
 
   - variables:
       not_silenced: &not_silenced >-
@@ -739,7 +754,6 @@ action:
           alias: Analyze Frigate clip
           continue_on_error: true
           data:
-            remember: true
             store_in_timeline: true
             model: "{{ input_model }}"
             provider: "{{ input_provider }}"
@@ -747,7 +761,6 @@ action:
             include_filename: "{{ input_include_filename }}"
             target_width: "{{ input_target_width }}"
             max_tokens: "{{ input_max_tokens }}"
-            temperature: "{{ input_temperature }}"
             generate_title: "{{ input_generate_title }}"
             expose_images: "{{ input_expose_images }}"
             event_id: "{{ id }}"

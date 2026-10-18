@@ -17,10 +17,10 @@ This repo contains a single Home Assistant automation blueprint that sends push 
   - Final “END” uses `tag: id` to give one last per-event card.
 - Mobile devices: notification service names use `notify.mobile_app_<slugified device name>`. Skip missing devices and unloaded mobile app entries. Runtime delivery errors must not block other recipients.
 - iOS support: when `ios_live_view` is on, Apple recipients get event HLS `master.m3u8` and extra actions. Android recipients keep MP4 and at most three actions. Event HLS is recorded playback; View Live opens the HA camera entity.
-- URLs: default to Companion app relative HA notification-proxy paths. Explicit `base_url` takes precedence over `local_url`. `frigate_url` controls only the optional Frigate UI action. Do not restore `state_attr('homeassistant', ...)` URL detection, `sign=true`, or fabricated review routes.
-- Zones filtering: `zones` and `zones_exclude` accept wildcards (`*`, `?`). They're compiled to regex and matched against either `entered`, `current`, or the union (`either`). Include list can require `any` or `all`; exclude always wins.
+- URLs: default to Companion app relative HA notification-proxy paths. Explicit `base_url` takes precedence over `local_url`. Live buttons and no-media taps use `/?more-info-entity-id=<selected_camera_entity>` on both platforms. `frigate_url` controls only the optional Frigate UI action. Do not restore `state_attr('homeassistant', ...)` URL detection, `sign=true`, or fabricated review routes.
+- Zones filtering: `zones` and `zones_exclude` match full IDs with wildcards (`*`, `?`). They are compiled to anchored regex and matched against either `entered`, `current`, or the union (`either`). Include list can require `any` or `all`; exclude always wins. Preserve the 0.3.x migration note: use `*porch*` to retain substring matching in either list.
 - All notification and AI paths share score, recording, false-positive, zone-data, include/exclude, and known-face filters. Use namespace objects for assignments inside Jinja loops. `has_clip` means retention eligibility, not download readiness. Native face sublabels may be `[name, confidence]`.
-- Debugging: when `debug` is true, emits structured messages via `logbook.log` at key decision points.
+- Labels accept custom values. Debugging logs camera/label/type/payload rejections before the initial gate, and zone decisions after matching. Avoid copying full MQTT payloads into logs.
 
 ## Silence and cooldown behavior
 - Per-camera silence (recommended): an `input_text` holds a JSON map `{camera_slug: silent_until_epoch}`. The blueprint reads/writes this to suppress sends for that camera.
@@ -31,7 +31,7 @@ This repo contains a single Home Assistant automation blueprint that sends push 
 ## LLMVision integration (optional)
 - Triggered only on END with a retained recording and a loaded provider. Recheck manual silence, competing cooldown and provider readiness after waits and before retries.
 - Waits 30s (and optionally for a shared `input_boolean` “busy” gate), then calls `llmvision.video_analyzer` with:
-  - Retry timing/attempts while waiting for the Frigate clip, frame count, resize width, tokens/temperature, title generation, and optional image exposure.
+  - Retry timing/attempts while waiting for the Frigate clip, frame count, resize width, tokens, title generation, and optional image exposure. Send only fields verified by the pinned service schema. Keep `store_in_timeline`; do not send obsolete `remember` or `temperature`. Preserve the deprecated Temperature input ID for saved automations; temperature belongs in provider configuration.
 - Provider state is a `ConfigEntryState` enum on old HA and a string on current HA. Compare `state.value | default(state)` with `loaded`. Do not mock this template helper in tests. Prefer the current device `config_entry_id` attribute, falling back to legacy `config_entries` only when needed.
 - Release the optional busy helper after reported analyzer failures. It is a simple flag, not an atomic mutex; reloads/cancellations can interrupt cleanup.
 - Current LLMVision returns `title` and `response_text`; accept legacy `response_title` as a fallback. Blank Model uses the provider default.
@@ -44,12 +44,13 @@ This repo contains a single Home Assistant automation blueprint that sends push 
 - Preserve the `SILENCE_<automation_entity_id>__<camera>` action id format; downstream logic depends on this exact scheme.
 - Be careful changing zone matching: include/exclude precedence and `any` vs `all` semantics are intentional.
 - Don't remove `alert_once: true` or the consistent `tag` usage-these are key to low-noise updates.
-- When modifying URL logic, ensure both internal/external HA URL fallbacks and a `frigate_url` override continue to work.
+- When modifying URL logic, preserve explicit External Base URL -> Internal Base URL -> relative path precedence. Frigate UI links are independent. LLMVision uses HA's own URL selection when resolving clips.
 
 ## Verification
 - Minimum HA 2026.3.0: Python 3.14 and `requirements-test.txt`. This matches the pinned Frigate integration's HACS requirement.
 - Current HA check: Python 3.14 and `requirements-test-current.txt`.
-- Run `python -m unittest discover -s tests -v` in both environments.
+- Run `python -m unittest discover -s tests -v` in both environments. Tests use actual HA YAML/input materialization and MQTT/event triggers, replacing only broker transport and external deliveries. Keep the overlapping-event and mixed-platform regressions.
+- `.github/workflows/compatibility.yml` also tests latest stable HA explicitly; scheduled runs start only after the workflow reaches the default branch.
 - Run `python tests/check_frigate_018.py` and `python tests/check_frigate_018.py --version 0.18.0` for pinned upstream contracts. These execute proxy mapping and LLMVision event-ID resolution without a live server.
 - Read `docs/frigate-0.18-compatibility.md` for coverage and installation limits. Do not describe source or simulated-delivery checks as live phone/provider verification.
 

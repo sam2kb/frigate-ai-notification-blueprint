@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.0-rc.2] - 2026-10-18
+- Use the shared relative More Info URL for View Live buttons and notification taps without retained media, including mapped camera entities on iOS and Android.
+- Allow custom Frigate labels in the picker. Add debug reasons for rejected camera, label, event type and payload, plus observed zone IDs and include/exclude decisions.
+- Remove obsolete `remember` and `temperature` analyzer parameters. Preserve the deprecated Temperature input for saved automations; configure temperature in LLMVision. Keep timeline storage enabled.
+- Document the breaking full-ID zone matching change from 0.3.x, including `*porch*` migration examples for both include and privacy exclusion patterns.
+- Test HA's actual blueprint input substitution, MQTT JSON parsing, mobile event routing, mixed-platform live URLs and overlapping END runs. Verify every analyzer call key against the pinned LLMVision schema and execute Frigate's actual MQTT serialization statements.
+- Add CI for minimum, pinned current and latest stable HA, plus Frigate 0.18.0/0.18.2 source contracts. Scheduled checks begin once the workflow reaches the default branch.
+- Correct cooldown guidance, AI log timing, provider URL requirements and iOS re-alert expectations. Keep the candidate import URL and HA 2026.3 support minimum.
+
 ## [1.0.0-rc.1] - 2026-10-17
 - First v1 release candidate, published on `codex/v1-candidate`. Requires Home Assistant 2026.3+; live installation testing remains outstanding.
 - Compare actual Home Assistant provider-state enum values and recheck readiness after delays and retries, preventing loaded providers from being skipped and unloaded providers from latching the busy helper.

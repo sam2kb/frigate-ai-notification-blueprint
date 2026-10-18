@@ -1,0 +1,71 @@
+name: Blueprint compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 8 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  home-assistant:
+    name: Home Assistant (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    # The full image includes the compiler needed by HA dependencies.
+    container: python:3.14
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [minimum, current, latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PIP_CACHE_DIR: ${{ github.workspace }}/.codex/pip-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-${{ runner.os }}-py314-${{ matrix.profile }}-${{ hashFiles('requirements-test*.txt', '.github/workflows/compatibility.yml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-py314-${{ matrix.profile }}-
+      - name: Install minimum supported Home Assistant
+        if: matrix.profile == 'minimum'
+        run: python -m pip install -r requirements-test.txt
+      - name: Install pinned current Home Assistant
+        if: matrix.profile == 'current'
+        run: python -m pip install -r requirements-test-current.txt
+      - name: Install latest stable Home Assistant
+        if: matrix.profile == 'latest'
+        # Resolve the latest published version explicitly: pip must fail if it
+        # needs a newer Python, rather than silently choosing an older HA.
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import subprocess
+          import sys
+          from urllib.request import urlopen
+
+          with urlopen('https://pypi.org/pypi/homeassistant/json', timeout=30) as response:
+              latest = json.load(response)['info']['version']
+          if not re.fullmatch(r'\d+\.\d+\.\d+', latest):
+              raise SystemExit(f'Unexpected stable HA version: {latest}')
+          print(f'Testing latest stable Home Assistant {latest}', flush=True)
+          subprocess.run([sys.executable, '-m', 'pip', 'install',
+                          f'homeassistant=={latest}', 'paho-mqtt==2.1.0'], check=True)
+          PY
+      - name: Run HA import, trigger and script regressions
+        run: python -m unittest discover -s tests -v
+      - name: Check pinned Frigate and LLMVision source contracts
+        if: matrix.profile == 'minimum'
+        run: |
+          python tests/check_frigate_018.py --version 0.18.0
+          python tests/check_frigate_018.py --version 0.18.2

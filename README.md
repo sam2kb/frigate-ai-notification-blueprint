@@ -2,15 +2,23 @@
 ---
 <sup>Rewritten and improved version of the original by [@zacharyd3](https://github.com/zacharyd3/Frigate-Vision).</sup>
 
-**Frigate AI Notification** is a clean, low-noise blueprint for smart multi-camera alerts powered by **Frigate** and (optionally) **LLMVision**. It focuses on fast, relevant notifications with the right links and the right amount of detail - no spam.
+**Frigate AI Notification** sends multi-camera alerts from **Frigate**, with optional **LLMVision** summaries. Detection, zone and face filters help you control which events produce notifications.
 
 ---
 
 ## Import the v1 Candidate
 
-Version `1.0.0-rc.1` is available on the `codex/v1-candidate` branch for installation testing. It requires Home Assistant 2026.3+. The automated checks pass, but phone playback and a real AI provider response still need a live test. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md).
+Version `1.0.0-rc.2` is available on the `codex/v1-candidate` branch for installation testing. It requires Home Assistant 2026.3+. Phone playback and a real AI provider response still need a live test. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) and [RC1 review responses](docs/rc2-review-responses.md).
 
 [![Open your Home Assistant instance and import the v1 candidate.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fcodex%2Fv1-candidate%2Ffrigate-ai-notification.yaml)
+
+---
+
+## Upgrading from 0.3.x
+
+**Zone matching changed in v1.** Include and exclude patterns now match the full zone ID. Previously, `porch` could match `front_porch`; use `*porch*` to keep that substring behavior, or enter `front_porch` for an exact match. Review both lists before importing, especially privacy exclusions. Exclusions now take precedence reliably, and `all` requires every include pattern to match.
+
+Home Assistant 2026.3+ is the supported minimum. Existing input IDs are preserved. The Temperature input is deprecated and ignored; configure temperature in your LLMVision provider instead.
 
 ---
 
@@ -37,7 +45,7 @@ Version `1.0.0-rc.1` is available on the `codex/v1-candidate` branch for install
 - **LLMVision summaries (optional)**: short, readable descriptions of what happened.
 - **Notification URLs**: relative links use the sending HA server in the Companion app. You can supply an explicit HA base URL and a separate Frigate UI URL.
 - **Friendly titles & camera names**: quick options to expand “Cam → Camera” or append “Camera”.
-- **Debug mode**: safe, verbose logging to validate logic while you fine-tune.
+- **Debug mode**: logs rejected events, filter decisions and observed zones while you fine-tune.
 
 ---
 
@@ -52,7 +60,7 @@ Frigate 0.18 event fields and notification media routes are covered by the [comp
 **Optional:**
 - **LLMVision** provider (leave blank to disable AI entirely)
 - **Input helpers** create in the same automation edit screen:
-  - `input_datetime` for a **global cooldown** (optional, NOT recommended)
+  - `input_datetime` for a **global cooldown** (optional; enable only if you want to skip alerts during the cooldown)
   - `input_text` for the **per-camera silence table** (optional, recommended)
   - `input_boolean` as a simple **LLM “busy” gate** when several cameras run in parallel (optional)
 - **Camera name override map** (optional): JSON map to align HA camera entity ids with Frigate camera names.
@@ -70,7 +78,7 @@ Frigate 0.18 event fields and notification media routes are covered by the [comp
 6. (Optional) Add **zones** to include/exclude and set match type/logic.
 7. (Optional) Enable **LLMVision** by selecting a provider. Leave Model blank to use that provider's configured default.
 8. (Optional) Add **AI Description Log Helper**: select an `input_text` with maximum length 255 for a short dashboard preview. Use the LLMVision timeline for longer history.
-9. (Optional) Add **Global cooldown** helper: choose an `input_datetime` so back-to-back alerts are throttled.
+9. (Optional) Add a **Global cooldown** helper and duration if you want to throttle alerts across all cameras. Events during that interval can be skipped.
 10. (Recommended) Add **Per-camera silence table** helper: select an `input_text`, set its maximum length to 255, and initialize its value to `{}`.
 11. If Frigate uses a custom MQTT `topic_prefix`, set **Frigate MQTT event topic** to `<prefix>/events`.
 12. **Save** and test.
@@ -79,7 +87,9 @@ Frigate 0.18 event fields and notification media routes are covered by the [comp
 
 ## 📲 How the Notification Behaves
 
-Initial and update notifications use the camera name as their tag. The final END card uses the Frigate event ID, and the AI summary replaces that final card. Repeated tags replace the corresponding notification. `alert_once: true` keeps Android replacements from alerting again.
+Initial and update notifications use the normalized Frigate camera ID as their tag. The final END card uses the Frigate event ID, and the AI summary replaces that final card. Repeated tags replace the corresponding notification. `alert_once: true` keeps Android replacements from alerting again.
+
+On iOS, updates and AI replacements may alert again according to the phone's notification settings. Android's `alert_once` option does not control iOS sounds or banners.
 
 The blueprint handles each MQTT `new`, `update`, and `end` message directly. An event no longer depends on a waiting loop being active when END arrives. Updates notify when an event becomes eligible, its recording flag changes, its recognized name or zones change, or a moving object gets a new snapshot.
 
@@ -105,7 +115,8 @@ Android supports three action buttons: View Clip, View Live, and Silence. If a s
 
 ## 🎛️ Zones & Labels
 
-- **Include list** supports `*` and `?`, blank = include all.
+- **Labels**: choose the suggested labels or type any Frigate label, including `truck` and custom model labels. Leave the list empty to accept all labels.
+- **Include list** matches full zone IDs, supports `*` and `?`, blank = include all. Use `*porch*` to match IDs containing `porch`.
 - **Exclude list**: use to carve out small “privacy” areas inside larger includes. If an event matches both an include and an exclude, the **exclude overrides** and the notification for that step is suppressed.
 
 **Example:** `include=front_yard_*`, `exclude=porch_privacy` → activity in `front_yard_driveway` not blocked; stepping into `porch_privacy` suppresses that tick.
@@ -138,18 +149,22 @@ Enable the provider/model to get a **short, readable summary** of what happened.
 You can tweak:
 - Number of frames analyzed
 - Target width token/size trade-off
-- Max tokens & temperature
+- Maximum output tokens
 - Whether to save analyzed frames in LLMVision
 
 Leave the **Provider** blank to turn AI off.
 
 Analysis starts 30 seconds after END and retries failed requests using Retry Attempts and Retry Timing. Manual silence, cooldown and provider readiness are checked again after waiting. Generated titles use LLMVision's `title` field, with `response_title` accepted for older integrations. Missing or empty response text never produces an AI card.
 
-The busy helper is released after each analyzer call, including reported service failures. It is a shared flag, so simultaneous events can still race. A restart or automation reload can interrupt cleanup; if the flag remains on after analysis has stopped, turn it off before retrying. Current LLMVision releases use the provider's temperature setting; the blueprint temperature input remains available for older versions.
+The busy helper is released after each analyzer call, including reported service failures. It is a shared flag, so simultaneous events can still race. A restart or automation reload can interrupt cleanup; if the flag remains on after analysis has stopped, turn it off before retrying.
+
+Set temperature in the LLMVision provider configuration. The blueprint keeps its deprecated Temperature input so saved automations still load, but does not send it to the analyzer. Timeline storage uses `store_in_timeline`; it does not enable LLMVision's separate contextual memory feature.
+
+LLMVision resolves event clips using Home Assistant's own URL selection. HA must be able to select a URL and reach its notification proxy through it. This can use configured network URLs, a cloud URL, or a detected local address. The blueprint's External/Internal Base URL inputs affect phone links only. If analysis cannot fetch a clip, check HA's network URL settings and proxy access.
 
 ### 📝 AI Description Log
 
-The **AI Description Log Helper** (`input_text`) stores a short preview after the notification is dismissed. Set its maximum length to 255 characters. New entries are prepended, and the combined text is truncated to the helper's configured limit. A single description may fill the entire helper.
+The **AI Description Log Helper** (`input_text`) stores a short preview when analysis succeeds. It remains available after the notification is dismissed. Set its maximum length to 255 characters. New entries are prepended, and the combined text is truncated to the helper's configured limit. A single description may fill the entire helper.
 
 Entries include a timestamp and camera name:
 
@@ -174,11 +189,13 @@ content: "{{ states('input_text.frigate_ai_log') }}"
 - `video_ios` - the event HLS playlist
 - `snapshot_url` / `thumbnail_url` - still images
 - `frigate_review_url` - opens the configured Frigate UI URL
-- `live_deeplink` - opens your camera entity in HA
+- `live_deeplink` - opens your camera entity in HA using `/?more-info-entity-id=camera.example`, for both notification taps and View Live buttons
 
 With both HA base URL inputs empty, media links remain relative and the Companion app resolves them against the sending server. An explicit External Base URL takes precedence over Internal Base URL. Use a URL reachable by every receiving device. The Frigate UI URL is independent and controls the Open Frigate action; it does not change HA's media proxy URLs.
 
 ---
+
+Enable **Debugging** to see rejected camera, label, event-type and malformed-payload reasons in the logbook. Zone diagnostics show the observed IDs, configured patterns and whether an include failed or an exclusion matched. Debug output includes camera and recognized face names; leave it off during normal use.
 
 ## 📜 Changelog
 

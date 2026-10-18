@@ -8,6 +8,7 @@ Delays advance a controlled clock; all other actions/templates use HA itself.
 from __future__ import annotations
 
 import asyncio
+import json
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from inspect import signature
@@ -18,32 +19,27 @@ from types import MappingProxyType, SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-import yaml
-
 from homeassistant import bootstrap, config_entries, loader
 from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
-from homeassistant.components.automation.config import PLATFORM_SCHEMA
+from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
+from homeassistant.components.automation.config import AUTOMATION_BLUEPRINT_SCHEMA, PLATFORM_SCHEMA
+from homeassistant.components.homeassistant.triggers import event as event_trigger
+from homeassistant.components.mqtt import trigger as mqtt_trigger
+from homeassistant.components.mqtt.models import ReceiveMessage
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.script import Script
+from homeassistant.helpers.selector import SelectSelector
 from homeassistant.setup import async_setup_component
+from homeassistant.util.yaml import load_yaml_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class Input(str):
-    """Keep !input references distinct from ordinary strings."""
-
-
-class Loader(yaml.SafeLoader):
-    pass
-
-
-Loader.add_constructor("!input", lambda loader, node: Input(loader.construct_scalar(node)))
-BLUEPRINT = yaml.load((ROOT / "frigate-ai-notification.yaml").read_text(), Loader=Loader)
+BLUEPRINT = load_yaml_dict(ROOT / "frigate-ai-notification.yaml")
 
 
 def defaults():
@@ -57,14 +53,14 @@ def defaults():
     return result
 
 
-def substitute(value, inputs):
-    if isinstance(value, Input):
-        return deepcopy(inputs[str(value)])
-    if isinstance(value, dict):
-        return {key: substitute(item, inputs) for key, item in value.items()}
-    if isinstance(value, list):
-        return [substitute(item, inputs) for item in value]
-    return value
+def materialize(inputs):
+    """Use HA's actual blueprint loader, defaults and !input substitution."""
+    blueprint = Blueprint(deepcopy(BLUEPRINT), expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA)
+    instance = BlueprintInputs(blueprint, {"use_blueprint": {"path": "frigate-ai-notification.yaml", "input": inputs}})
+    instance.validate()
+    expanded = instance.async_substitute()
+    PLATFORM_SCHEMA(deepcopy(expanded))
+    return expanded
 
 
 def fast_delays(value):
@@ -147,6 +143,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         self.ai_result = {"title": "Delivery", "response_text": "A person leaves a parcel."}
         self.fail_other_phone = True
         self.delay_hook = None
+        self.ai_hook = None
 
         async def notify(call):
             self.notifications.append(dict(call.data))
@@ -161,6 +158,8 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
 
         async def analyzer(call):
             self.ai_calls.append(dict(call.data))
+            if self.ai_hook:
+                await self.ai_hook()
             if self.ai_failures:
                 self.ai_failures -= 1
                 raise HomeAssistantError("Temporary provider failure")
@@ -192,16 +191,155 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
     async def run_event(self, kind="new", before=None, after=None, inputs=None, mobile=None):
         selected = defaults() | (inputs or {})
         selected["notify_device"] = [self.devices.get(device, device) for device in selected["notify_device"]]
-        config = substitute(BLUEPRINT, selected)
+        config = materialize(selected)
         # Check the real, unmodified action schema as well as the accelerated script.
-        cv.SCRIPT_SCHEMA(config["action"])
-        sequence = cv.SCRIPT_SCHEMA(fast_delays(config["action"]))
+        cv.SCRIPT_SCHEMA(config["actions"])
+        sequence = cv.SCRIPT_SCHEMA(fast_delays(config["actions"]))
         script = Script(self.hass, sequence, "Frigate regression", "automation", script_mode="parallel")
         trigger = {"id": "frigate-event", "payload_json": {"type": kind, "before": before or {}, "after": after if after is not None else tracked()}}
         if mobile is not None:
             trigger = {"id": "mobile-action", "event": SimpleNamespace(data=mobile)}
         await script.async_run({"trigger": trigger, "this": self.hass.states.get("automation.frigate_test")}, context=Context())
         return script
+
+    async def attach_triggers(self, inputs=None):
+        """Keep HA's real MQTT/event triggers; replace only broker transport."""
+        selected = {"camera": ["camera.front_door"], "notify_device": [self.devices["phone"]]} | (inputs or {})
+        raw_config = materialize(selected)
+        config = PLATFORM_SCHEMA({**raw_config, "actions": fast_delays(raw_config["actions"])})
+        script = Script(self.hass, config["actions"], "Trigger regression", "automation", script_mode=config["mode"])
+        subscriptions = {}
+
+        def subscribe(hass, topic, callback, **kwargs):
+            subscriptions[topic] = callback
+            return lambda: subscriptions.pop(topic, None)
+
+        async def run(variables, context=None):
+            await script.async_run({"this": self.hass.states.get("automation.frigate_test"), **variables}, context=context or Context())
+
+        for index, trigger in enumerate(config["triggers"]):
+            platform = {"mqtt": mqtt_trigger, "event": event_trigger}[trigger["platform"]]
+            trigger = platform.TRIGGER_SCHEMA(trigger)
+            info = {"domain": "automation", "name": "Frigate regression", "variables": {}, "trigger_data": {"id": trigger["id"], "idx": str(index), "alias": None}}
+            with patch.object(mqtt_trigger, "async_subscribe_internal", side_effect=subscribe):
+                remove = await platform.async_attach_trigger(self.hass, trigger, run, info)
+            self.addCleanup(remove)
+
+        async def publish(payload, topic="frigate/events", wait=True):
+            callback = subscriptions.get(topic)
+            if callback:
+                callback(ReceiveMessage(topic, payload, 0, False, topic, self.clock.timestamp()))
+            if wait:
+                await self.hass.async_block_till_done()
+
+        return publish
+
+    async def test_actual_mqtt_trigger_parses_custom_topic_and_all_event_types(self):
+        publish = await self.attach_triggers({"mqtt_topic": "custom/events"})
+        message = {"type": "new", "before": {}, "after": tracked()}
+        await publish(json.dumps(message))
+        self.assertEqual(self.notifications, [])
+        for kind in ("new", "update", "end"):
+            await publish(json.dumps(message | {"type": kind}), "custom/events")
+        self.assertEqual(len(self.notifications), 3)
+        self.assertEqual(self.notifications[-1]["data"]["tag"], tracked()["id"])
+
+    async def test_actual_mqtt_trigger_rejects_invalid_json_and_non_object_payloads(self):
+        publish = await self.attach_triggers({"debug": True})
+        for payload in ("not JSON", "[]", "null", '"text"', '{}'):
+            await publish(payload)
+        self.assertEqual(self.notifications, [])
+        self.assertEqual(len(self.logs), 5)
+        self.assertTrue(all("invalid_payload" in log["message"] for log in self.logs))
+
+    async def test_actual_mobile_event_trigger_routes_silence_to_own_automation(self):
+        await self.attach_triggers({"silence_table": "input_text.silence"})
+        self.hass.bus.async_fire("mobile_app_notification_action", {"action": "SILENCE_automation.other__front_door", "reply_text": "5"})
+        await self.hass.async_block_till_done()
+        self.assertEqual(self.hass.states.get("input_text.silence").state, "{}")
+        self.hass.bus.async_fire("mobile_app_notification_action", {"action": "SILENCE_automation.frigate_test__front_door", "reply_text": "5"})
+        await self.hass.async_block_till_done()
+        self.assertEqual(json.loads(self.hass.states.get("input_text.silence").state)["front_door"], int(self.clock.timestamp()) + 300)
+        self.assertEqual(self.notifications, [])
+
+    async def test_custom_labels_are_selectable_and_filter_events(self):
+        selector = SelectSelector(BLUEPRINT["blueprint"]["input"]["labels"]["selector"]["select"])
+        labels = selector(["truck", "custom_object"])
+        self.assertEqual(labels, ["truck", "custom_object"])
+        for label in ("truck", "CUSTOM_OBJECT", "person"):
+            await self.run_event(after=tracked(label=label), inputs={"labels": labels})
+        self.assertEqual(len(self.notifications), 2)
+
+    async def test_rejection_debug_names_camera_label_type_and_missing_id(self):
+        for kind, event, reason in (
+            ("new", tracked(camera="unknown"), "camera_unmatched"),
+            ("new", tracked(label="truck"), "label_unselected"),
+            ("invalid", tracked(), "unsupported_event_type"),
+            ("end", tracked(id=""), "missing_event_id"),
+        ):
+            await self.run_event(kind, after=event, inputs={"debug": True})
+            self.assertIn(reason, self.logs[-1]["message"])
+        self.assertEqual(self.notifications, [])
+        self.logs.clear()
+        await self.run_event(after=tracked(camera="unknown"))
+        self.assertEqual(self.logs, [])
+
+    async def test_zone_migration_and_debug_explain_full_id_matching(self):
+        event = tracked(current_zones=["front_porch"], entered_zones=["front_porch"])
+        await self.run_event(after=event, inputs={"zones": "porch", "debug": True})
+        self.assertEqual(self.notifications, [])
+        self.assertIn("include_unmatched", self.logs[-1]["message"])
+        self.assertIn("front_porch", self.logs[-1]["message"])
+        await self.run_event(after=event, inputs={"zones": "*porch*"})
+        await self.run_event(after=event, inputs={"zones_exclude": "porch"})
+        await self.run_event(after=event, inputs={"zones_exclude": "*porch*", "debug": True})
+        self.assertEqual(len(self.notifications), 2)
+        self.assertIn("zone_reason=excluded", self.logs[-1]["message"])
+
+    async def test_live_urls_work_for_both_platforms_and_no_media_taps(self):
+        self.fail_other_phone = False
+        for has_media in (True, False):
+            await self.run_event(after=tracked(has_clip=has_media, has_snapshot=False), inputs={"notify_device": ["phone", "other_phone"], "ios_live_view": True, "base_url": "https://ha.example"})
+        live = "/?more-info-entity-id=camera.front_door"
+        for notification in self.notifications:
+            data = notification["data"]
+            self.assertEqual(data["url"], data["clickAction"])
+            self.assertTrue(any(action.get("uri") == live for action in data["actions"]))
+        self.assertEqual([n["data"]["url"] for n in self.notifications[-2:]], [live, live])
+
+    async def test_legacy_temperature_is_accepted_but_obsolete_fields_are_not_sent(self):
+        await self.run_event("end", inputs={"provider": "test", "temperature": .8})
+        self.assertEqual(len(self.ai_calls), 1)
+        self.assertNotIn("temperature", self.ai_calls[0])
+        self.assertNotIn("remember", self.ai_calls[0])
+        self.assertTrue(self.ai_calls[0]["store_in_timeline"])
+
+    async def test_overlapping_end_events_wait_for_busy_helper_and_keep_own_tags(self):
+        first_started, release_first = asyncio.Event(), asyncio.Event()
+
+        async def hold_first_analysis():
+            if len(self.ai_calls) == 1:
+                first_started.set()
+                await release_first.wait()
+
+        self.ai_hook = hold_first_analysis
+        publish = await self.attach_triggers({"provider": "test", "helper": "input_boolean.busy", "camera": ["camera.front_door", "camera.back_yard"]})
+        first = tracked()
+        second = tracked(id="1800000001.123456-back", camera="back_yard")
+        await publish(json.dumps({"type": "end", "after": first}), wait=False)
+        await asyncio.wait_for(first_started.wait(), timeout=5)
+        try:
+            await publish(json.dumps({"type": "end", "after": second}), wait=False)
+            await asyncio.sleep(.02)
+            self.assertEqual(len(self.ai_calls), 1)
+            self.assertEqual(len(self.notifications), 2)
+        finally:
+            release_first.set()
+        await asyncio.wait_for(self.hass.async_block_till_done(), timeout=5)
+        self.assertEqual(len(self.ai_calls), 2)
+        self.assertEqual(len(self.notifications), 4)
+        self.assertEqual(sorted(n["data"]["tag"] for n in self.notifications), sorted([first["id"], first["id"], second["id"], second["id"]]))
+        self.assertEqual(self.hass.states.get("input_boolean.busy").state, "off")
 
     async def test_default_notification_urls_and_actions(self):
         await self.run_event()
@@ -218,8 +356,9 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         BLUEPRINT_SCHEMA(deepcopy(BLUEPRINT))
         minimum = BLUEPRINT["blueprint"]["homeassistant"]["min_version"]
         self.assertGreaterEqual(tuple(map(int, version("homeassistant").split("."))), tuple(map(int, minimum.split("."))))
-        expanded = substitute(BLUEPRINT, defaults())
-        PLATFORM_SCHEMA({k: v for k, v in expanded.items() if k != "blueprint"})
+        expanded = materialize({"camera": ["camera.front_door"], "notify_device": [self.devices["phone"]]})
+        self.assertEqual(expanded["triggers"][0]["topic"], "frigate/events")
+        self.assertEqual(expanded["mode"], "parallel")
 
     async def test_full_silence_table_preserves_existing_mutes(self):
         value = '{"one":1800009999}'
@@ -328,7 +467,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
     async def test_event_without_retained_media_links_to_live(self):
         await self.run_event("end", after=tracked(has_clip=False, has_snapshot=False), inputs={"provider": "test"})
         self.assertEqual(len(self.notifications), 1)
-        self.assertEqual(self.notifications[0]["data"]["url"], "entityId:camera.front_door")
+        self.assertEqual(self.notifications[0]["data"]["url"], "/?more-info-entity-id=camera.front_door")
         self.assertEqual(self.notifications[0]["data"]["actions"][0]["title"], "View Live")
         self.assertEqual(self.ai_calls, [])
 
@@ -469,7 +608,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_camera_override_preserves_real_live_entity(self):
         await self.run_event(inputs={"camera": ["camera.front_door_2"], "camera_name_map": '{"camera.front_door_2":"front_door"}'})
-        self.assertEqual(self.notifications[0]["data"]["actions"][1]["uri"], "entityId:camera.front_door_2")
+        self.assertEqual(self.notifications[0]["data"]["actions"][1]["uri"], "/?more-info-entity-id=camera.front_door_2")
 
     async def test_ios_url_and_explicit_base(self):
         await self.run_event(inputs={"ios_live_view": True, "base_url": "https://ha.example/", "frigate_url": "https://frigate.example"})
