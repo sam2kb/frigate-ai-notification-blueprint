@@ -4,7 +4,7 @@ The [RC1 review](review-v1.0.0-rc.1.md) is preserved as submitted. These are the
 
 | Review point | RC2 disposition |
 | --- | --- |
-| B1: candidate metadata | Keep the candidate branch URL while testing RC2. Change it during stable promotion. |
+| B1: candidate metadata | RC2 kept the candidate branch URL for testing. Stable v1.0.0 points the blueprint source and README import link at `main`. |
 | B2: zone migration | Add a prominent breaking-change note and examples for both include and exclude patterns. Full-ID matching stays intentional; `*porch*` preserves substring behavior. |
 | H1: live link | Use `/?more-info-entity-id=...` for both buttons and no-media taps. Android supports the old `entityId:` form, but iOS routing needs the shared URL. Test both platforms with mapped camera IDs. |
 | H2: CI | Add minimum, pinned current and latest stable HA jobs, plus both Frigate 0.18 source checks. Weekly runs require the workflow on the default branch. |

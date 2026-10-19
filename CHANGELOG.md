@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.0] - 2026-10-19
+- Promote the tested RC2 implementation to `main`. Update the blueprint version, source URL and README import badge for the stable release; runtime behavior is unchanged from RC2.
+- V1 fixes zone exclusions and `all` matching, final-event data handling, AI filter/cooldown bypasses, notification links, provider readiness and helper cleanup. It also adds custom labels, rejection diagnostics and automated compatibility checks.
+- Requires Home Assistant 2026.3+. Frigate 0.18.0/0.18.2 source contracts and 51 regression scenarios cover the supported integration paths. Phone playback, broker delivery and real AI responses still need installation checks.
+- When upgrading from 0.3.x, review both zone lists: patterns match full IDs, so use `*porch*` to preserve substring matching. Configure temperature in LLMVision; the old blueprint input is retained but ignored.
+
 ## [1.0.0-rc.2] - 2026-10-18
 - Use the shared relative More Info URL for View Live buttons and notification taps without retained media, including mapped camera entities on iOS and Android.
 - Allow custom Frigate labels in the picker. Add debug reasons for rejected camera, label, event type and payload, plus observed zone IDs and include/exclude decisions.

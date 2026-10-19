@@ -31,7 +31,7 @@ python3.14 -m venv .codex/ha-test
 
 For Home Assistant 2026.10.2, create a separate Python 3.14 environment and install `requirements-test-current.txt`, then run the same tests.
 
-The [compatibility workflow](../.github/workflows/compatibility.yml) runs both pinned environments and resolves the latest stable HA release from PyPI for a third job. It fails if that release needs a newer Python instead of silently testing an older compatible HA version. Pushes and pull requests run the workflow immediately. GitHub's weekly schedule starts once the workflow is on the default branch; candidate-branch pushes still run all three jobs.
+The [compatibility workflow](../.github/workflows/compatibility.yml) runs both pinned environments and resolves the latest stable HA release from PyPI for a third job. It fails if that release needs a newer Python instead of silently testing an older compatible HA version. Pushes and pull requests run the workflow immediately. The workflow also runs weekly from the default branch, `main`.
 
 The upstream contract check downloads public source at the pinned revisions and verifies its Git blob hashes. It checks API routes and object fields, executes Frigate's actual MQTT serialization statements to verify `before`/`after` and event types, and checks every analyzer data key sent by the blueprint against LLMVision's service fields. It also checks response fields and executes the integration's notification URL mapper and LLMVision's event-ID resolver in isolation:
 
@@ -66,4 +66,4 @@ The automation allows 25 concurrent runs. Completed events waiting for AI occupy
 
 Android replacements use `alert_once`. iOS replacements retain active notification delivery and may sound or show banners again according to device settings. An update can be an event's first eligible notification, so the blueprint does not silence every update automatically.
 
-Verification for v1.0.0-rc.2: all 51 regression scenarios passed on Home Assistant 2026.3.0 and 2026.10.2 (Python 3.14). The strengthened upstream contract checks passed for Frigate 0.18.0 and 0.18.2. Live phone playback and provider verification remain outstanding.
+Verification for v1.0.0: all 51 regression scenarios passed on Home Assistant 2026.3.0 and 2026.10.2 (Python 3.14). The upstream contract checks passed for Frigate 0.18.0 and 0.18.2. Runtime behavior is unchanged from RC2. Live phone playback and provider verification remain outstanding.

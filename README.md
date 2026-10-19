@@ -6,11 +6,11 @@
 
 ---
 
-## Import the v1 Candidate
+## Import the Blueprint
 
-Version `1.0.0-rc.2` is available on the `codex/v1-candidate` branch for installation testing. It requires Home Assistant 2026.3+. Phone playback and a real AI provider response still need a live test. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) and [RC1 review responses](docs/rc2-review-responses.md).
+Version `1.0.0` is available on `main` and requires Home Assistant 2026.3+. It includes the fixes tested in RC2. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) for automated coverage and installation checks, and the [RC1 review responses](docs/rc2-review-responses.md) for the review decisions.
 
-[![Open your Home Assistant instance and import the v1 candidate.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fcodex%2Fv1-candidate%2Ffrigate-ai-notification.yaml)
+[![Open your Home Assistant instance and import the blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fmain%2Ffrigate-ai-notification.yaml)
 
 ---
 

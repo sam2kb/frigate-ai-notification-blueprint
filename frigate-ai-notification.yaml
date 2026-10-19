@@ -2,9 +2,9 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [1.0.0-rc.2] Multi-camera notifications powered by Frigate and optional LLMVision summaries.
+    [1.0.0] Multi-camera notifications powered by Frigate and optional LLMVision summaries.
     Filter by detection quality, zones and recognized faces, with optional silence and cooldown controls.
-  source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/codex/v1-candidate/frigate-ai-notification.yaml
+  source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
   homeassistant:
     min_version: 2026.3.0

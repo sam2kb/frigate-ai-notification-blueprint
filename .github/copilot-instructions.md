@@ -50,7 +50,7 @@ This repo contains a single Home Assistant automation blueprint that sends push 
 - Minimum HA 2026.3.0: Python 3.14 and `requirements-test.txt`. This matches the pinned Frigate integration's HACS requirement.
 - Current HA check: Python 3.14 and `requirements-test-current.txt`.
 - Run `python -m unittest discover -s tests -v` in both environments. Tests use actual HA YAML/input materialization and MQTT/event triggers, replacing only broker transport and external deliveries. Keep the overlapping-event and mixed-platform regressions.
-- `.github/workflows/compatibility.yml` also tests latest stable HA explicitly; scheduled runs start only after the workflow reaches the default branch.
+- `.github/workflows/compatibility.yml` also tests latest stable HA explicitly and runs weekly from the default branch.
 - Run `python tests/check_frigate_018.py` and `python tests/check_frigate_018.py --version 0.18.0` for pinned upstream contracts. These execute proxy mapping and LLMVision event-ID resolution without a live server.
 - Read `docs/frigate-0.18-compatibility.md` for coverage and installation limits. Do not describe source or simulated-delivery checks as live phone/provider verification.
 
