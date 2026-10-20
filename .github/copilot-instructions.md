@@ -63,3 +63,11 @@ This repo contains a single Home Assistant automation blueprint that sends push 
 - Persistent native MQTT triggers bridge valid messages to scoped local HA events. MQTT value_template has no script variables; filter only context-free message types there. Match object ID, automation and camera inside HA event waits. Review detections contain object IDs; never use the review ID for clips.
 - Native messages must not renew timers or send fresh alerts. Preserve shared eligibility/stale guards and require valid response text before the final send. Conditional branches that end on a condition can return to their parent sequence; do not assume they stop the whole automation.
 - Native waiting counts toward LLMVision clip-readiness delay. Do not add a further fixed 30 seconds after the default 90-second wait. No helper/API cache is provided; document early-only/late/reload misses.
+
+## Concurrency constraints
+- Keep this a self-contained reusable automation blueprint. No companion scripts, custom integration, external worker installation or additional helper requirements.
+- Preserve parallel camera processing. Reserve ingress headroom before admitting long AI waits, and cancel older native waits when newer eligible camera activity arrives. Basic delivery remains independent of AI admission.
+- Capture native text in the first parallel branch alongside basic END delivery. Join both before summary delivery. Keep captured values initialized in outer scope; HA protects each parallel branch's wait variable.
+- Capture cooldown ownership in the basic-delivery branch at the write. Never infer it from the current timestamp after an AI wait.
+- Merge silence JSON from states(input_silence_table) inside the native write action, not an earlier variable. Preserve native callback ordering and verify the requested mute was saved; do not introduce a queued companion script.
+- Trigger tests must pass configured max_runs and publish actual current/max state attributes. Keep the native helper implementation intact when testing mobile-action interleavings.

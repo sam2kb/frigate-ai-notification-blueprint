@@ -67,7 +67,7 @@ def materialize(inputs):
 def fast_delays(value):
     """Replace only wall-clock delays, preserving their timing and action order."""
     if isinstance(value, dict):
-        if "delay" in value:
+        if "delay" in value and value["delay"] != {"milliseconds": 0}:
             return {"service": "test.advance_time", "data": {"duration": value["delay"]}}
         return {key: fast_delays(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -244,7 +244,10 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         # broker transport and platform discovery (no broker config entry in tests).
         self.enterContext(patch.object(mqtt_trigger, "async_subscribe_internal", side_effect=subscribe))
         actions = await async_validate_actions_config(self.hass, config["actions"])
-        script = Script(self.hass, actions, "Trigger regression", "automation", script_mode=config["mode"])
+        def changed():
+            self.hass.states.async_set("automation.frigate_test", "on", {"current": script.runs, "max": config["max"], "mode": config["mode"]})
+        script = Script(self.hass, actions, "Trigger regression", "automation", script_mode=config["mode"], max_runs=config["max"], change_listener=changed)
+        self.active_script = script
 
         async def run(variables, context=None):
             await script.async_run({"this": self.hass.states.get("automation.frigate_test"), **variables}, context=context or Context())
@@ -913,14 +916,115 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         inputs = {"ai_source": "frigate", "native_description_timeout": 1, **changes}
         publish = await self.attach_triggers(inputs)
         event = {"type": "end", "before": tracked(), "after": event_after if event_after is not None else tracked()}
+        initial_notifications = len(self.notifications)
         await publish(json.dumps(event), inputs.get("mqtt_topic", "frigate/events"), wait=False)
         prefix = inputs.get("mqtt_topic", "frigate/events").rsplit("/", 1)[0]
         topic = inputs.get("native_mqtt_topic") or prefix + ("/reviews" if inputs.get("frigate_description_type") == "review" else "/tracked_object_update")
         for _ in range(1000):
-            if self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0):
+            timestamp = inputs.get("cooldown_timestamp")
+            delivered = len(self.notifications) > initial_notifications
+            stamped = not timestamp or self.hass.states.get(timestamp).attributes.get("timestamp") == int(self.clock.timestamp())
+            if delivered and stamped and self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0):
                 return publish, topic
             await asyncio.sleep(0)
         self.fail("Native description wait did not subscribe")
+
+    async def test_native_capture_precedes_slow_end_delivery(self):
+        publish = await self.attach_triggers({"ai_source": "auto", "provider": "test", "native_description_timeout": .1})
+        async def deliver(call):
+            self.notifications.append(dict(call.data))
+            if len(self.notifications) == 1:
+                await publish(json.dumps({"type": "description", "id": tracked()["id"], "camera": "front_door", "description": "Native during delivery"}), "frigate/tracked_object_update", wait=False)
+                # The basic delivery has not returned yet; AI must not replace it early.
+                for _ in range(15):
+                    await asyncio.sleep(0)
+                self.assertEqual(len(self.notifications), 1)
+        self.hass.services.async_register("notify", "mobile_app_phone", deliver)
+        await publish(json.dumps({"type": "end", "after": tracked()}))
+        self.assertEqual([n["message"] for n in self.notifications][-1], "Native during delivery")
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_native_capacity_reserves_ingress_for_other_cameras_and_text(self):
+        cameras = [f"camera.test_{i}" for i in range(26)]
+        publish = await self.attach_triggers({"camera": cameras, "ai_source": "frigate", "native_description_timeout": 5})
+        maximum_waiters = 0
+        for i in range(25):
+            await publish(json.dumps({"type": "end", "after": tracked(id=f"track-{i}", camera=f"test_{i}")}), wait=False)
+            for _ in range(1000):
+                if len(self.notifications) > i:
+                    break
+                await asyncio.sleep(0)
+            else:
+                self.fail(f"Basic END card {i} was blocked")
+            maximum_waiters = max(maximum_waiters, self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0) // 2)
+        self.assertLessEqual(maximum_waiters, 20)
+        await publish(json.dumps({"type": "new", "after": tracked(id="fresh-camera", camera="test_25")}), wait=False)
+        await publish(json.dumps({"type": "description", "id": "track-0", "camera": "test_0", "description": "Native can still enter"}), "frigate/tracked_object_update", wait=False)
+        for _ in range(2000):
+            if len(self.notifications) >= 27:
+                break
+            await asyncio.sleep(0)
+        self.assertEqual(len(self.notifications), 27)
+        self.assertTrue(any(n["message"] == "Native can still enter" for n in self.notifications))
+        await self.active_script.async_stop()
+
+    async def test_superseded_native_waits_release_camera_capacity(self):
+        publish = await self.attach_triggers(self.activity_inputs(ai_source="auto", native_description_timeout=5))
+        for i in range(25):
+            self.clock += timedelta(seconds=1)
+            await publish(json.dumps({"type": "end", "after": tracked(id=f"split-{i}")}), wait=False)
+            for _ in range(1000):
+                if len(self.notifications) > i:
+                    break
+                await asyncio.sleep(0)
+        for _ in range(50):
+            await asyncio.sleep(0)
+        self.assertLessEqual(self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0), 2)
+        self.assertEqual(len(self.notifications), 25)
+        await self.active_script.async_stop()
+
+    async def test_simultaneous_end_burst_does_not_consume_all_run_slots(self):
+        publish = await self.attach_triggers({"ai_source": "frigate", "native_description_timeout": 5})
+        await asyncio.gather(*(publish(json.dumps({"type": "end", "after": tracked(id=f"burst-{i}")}), wait=False) for i in range(25)))
+        for _ in range(2000):
+            if len(self.notifications) == 25:
+                break
+            await asyncio.sleep(0)
+        self.assertEqual(len(self.notifications), 25)
+        for _ in range(1000):
+            if self.active_script.runs <= 20:
+                break
+            await asyncio.sleep(0)
+        self.assertLessEqual(self.active_script.runs, 20)
+        await self.active_script.async_stop()
+
+    async def test_concurrent_silence_reads_preserve_both_camera_mutes(self):
+        original = Script._async_get_choose_data
+        entered = 0
+        release = asyncio.Event()
+        async def interleave(script, step):
+            nonlocal entered
+            choices = script.sequence[step].get("choose", [])
+            if choices and "mobile-action" in str(choices[0].get("conditions", [])):
+                entered += 1
+                if entered == 2:
+                    release.set()
+                await release.wait()
+            return await original(script, step)
+        async def mute(camera):
+            await self.run_event(inputs={"silence_table": "input_text.silence"}, mobile={"action": "SILENCE_automation.frigate_test__" + camera, "reply_text": "5"})
+        with patch.object(Script, "_async_get_choose_data", interleave):
+            await asyncio.wait_for(asyncio.gather(mute("front_door"), mute("back_yard")), 3)
+        self.assertEqual(entered, 2)
+        table = json.loads(self.hass.states.get("input_text.silence").state)
+        self.assertEqual(set(table), {"front_door", "back_yard"})
+
+    async def test_native_silence_write_stress_preserves_all_camera_keys(self):
+        async def mute(camera):
+            await self.run_event(inputs={"silence_table": "input_text.silence"}, mobile={"action": "SILENCE_automation.frigate_test__" + camera, "reply_text": "5"})
+        await asyncio.wait_for(asyncio.gather(*(mute(f"cam_{i % 6}") for i in range(24))), 5)
+        table = json.loads(self.hass.states.get("input_text.silence").state)
+        self.assertEqual(set(table), {f"cam_{i}" for i in range(6)})
 
     async def test_auto_object_text_skips_configured_llmvision(self):
         publish, topic = await self.start_native_wait(ai_source="auto", provider="test")
@@ -1094,7 +1198,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         self.clock += timedelta(seconds=1)
         await publish(json.dumps({"type": "end", "before": tracked(id="later-track"), "after": tracked(id="later-track")}), wait=False)
         for _ in range(1000):
-            if self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0) >= 4:
+            if self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0) >= 2 and "later-track" in self.notifications[-1]["data"]["url"]:
                 break
             await asyncio.sleep(0)
         else:

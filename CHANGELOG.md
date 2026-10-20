@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here.
 
+## [1.2.1] - 2026-10-20
+
+- Reserve processing capacity before starting long AI work, and cancel older native waits when newer eligible activity arrives on the same camera. At capacity, skip the AI summary so incoming events can still be handled.
+- Capture native descriptions while the basic END notification is being delivered. Wait for delivery to finish before sending the summary, so valid text is retained and the basic card cannot overwrite its own summary.
+- Preserve concurrent camera mutes by merging the latest silence-table value in HA's native helper write action. Verify that the requested mute was saved before reporting success.
+- Track each run's own global-cooldown update when it is written, so another event's cooldown cannot be mistaken for its own after a native wait.
+- Keep all fixes inside the existing blueprint. Inputs and helpers stay unchanged; updating requires no additional installation steps.
+- Pass 100 regression scenarios on HA 2026.3.0 and 2026.10.2, including overlapping deliveries, sustained and simultaneous END bursts, superseded waits and concurrent mutes. Frigate 0.18.0/0.18.2 source contracts also pass. Phone delivery and real GenAI provider output remain unverified by these automated checks.
+
 ## [1.2.0] - 2026-10-19
 - Remove Previous timer setup and the old `activity_timers` YAML-map input. Configure camera timers with the camera/timer picker rows; saved automations using only the old map need their pairs entered as rows before upgrading.
 - Add native Frigate AI object descriptions and review narratives. Match review detections to the original object and camera, use scene/title text, and quietly replace the existing card without requiring LLMVision or new helpers.

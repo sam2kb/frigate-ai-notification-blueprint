@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [1.2.0] Multi-camera notifications with optional Frigate AI descriptions or LLMVision summaries.
+    [1.2.1] Multi-camera notifications with optional Frigate AI descriptions or LLMVision summaries.
     Filter by detection quality, zones and recognized faces, with optional silence and cooldown controls.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -643,33 +643,34 @@ action:
               - conditions: "{{ silence_table_enabled and action_cam | length > 0 }}"
                 sequence:
                   - variables:
-                      silence_json: >-
-                        {% set current = silence_table %}
+                      silence_until: "{{ (as_timestamp(now()) | int) + (silence_min | int) * 60 }}"
+                  # Render the latest helper inside the native write action. Do not
+                  # reuse the snapshot captured before this mobile branch started.
+                  # input_text's state update is an HA event-loop callback, with no
+                  # network I/O between this action's render and the native write.
+                  - service: input_text.set_value
+                    target:
+                      entity_id: "{{ input_silence_table }}"
+                    data:
+                      value: >-
+                        {% set raw = states(input_silence_table) | from_json({}) %}
+                        {% set current = raw if raw is mapping else {} %}
                         {% set ts = as_timestamp(now()) | int %}
                         {% set ns = namespace(keep={}) %}
                         {% for key, value in current.items() %}
                           {% if value | int(0) > ts %}{% set ns.keep = dict(ns.keep, **{key: value | int}) %}{% endif %}
                         {% endfor %}
-                        {{ dict(ns.keep, **{action_cam: ts + (silence_min | int) * 60}) | to_json }}
-                  - choose:
-                      - conditions: "{{ silence_json | string | length <= state_attr(input_silence_table, 'max') | int(100) }}"
-                        sequence:
-                          - service: input_text.set_value
-                            target:
-                              entity_id: "{{ input_silence_table }}"
-                            data:
-                              value: "{{ silence_json }}"
-                          - service: persistent_notification.create
-                            data:
-                              title: Frigate Notifications
-                              message: "Silenced {{ action_cam }} for {{ silence_min }} minutes."
-                    default:
-                      - service: persistent_notification.create
-                        data:
-                          title: Frigate silence failed
-                          message: >-
-                            The silence table is full. Increase {{ input_silence_table }}'s
-                            maximum length (up to 255) or wait for an existing mute to expire.
+                        {% set candidate = dict(ns.keep, **{action_cam: silence_until | int}) | to_json %}
+                        {{ candidate if candidate | length <= state_attr(input_silence_table, 'max') | int(100) else states(input_silence_table) }}
+                  - variables:
+                      saved_raw: "{{ states(input_silence_table) | from_json({}) }}"
+                      mute_saved: "{{ saved_raw is mapping and saved_raw.get(action_cam, 0) | int(0) >= silence_until | int }}"
+                  - service: persistent_notification.create
+                    data:
+                      title: "{{ 'Frigate Notifications' if mute_saved else 'Frigate silence failed' }}"
+                      message: >-
+                        {{ 'Silenced ' ~ action_cam ~ ' for ' ~ silence_min ~ ' minutes.' if mute_saved else
+                           'The silence table is full. Increase its maximum length to 255 or wait for an existing mute to expire.' }}
               - conditions: "{{ not silence_table_enabled }}"
                 sequence:
                   - service: automation.turn_off
@@ -850,126 +851,164 @@ action:
         data:
           name: Frigate Notification
           message: "Activity: camera={{ camera }} timer={{ activity_timer or 'disabled' }} first={{ activity_first }} send={{ normal_send_allowed }} quiet={{ quiet_update }} tag={{ notification_tag }}."
-  - choose:
-      - conditions: "{{ normal_send_allowed }}"
-        sequence:
-          - repeat: &send_notification
-              for_each: "{{ raw_device }}"
-              sequence:
-                - variables:
-                    notify_name: "{{ device_attr(repeat.item, 'name') | default('', true) }}"
-                    notify_service: "{{ 'notify.mobile_app_' ~ (notify_name | slugify) }}"
-                    notify_ready: >-
-                      {% set ns = namespace(loaded=false) %}
-                      {% set primary = device_attr(repeat.item, 'config_entry_id') %}
-                      {% set entries = [primary] if primary else device_attr(repeat.item, 'config_entries') or [] %}
-                      {% for entry in entries %}
-                        {% set state = config_entry_attr(entry, 'state') %}
-                        {% if config_entry_attr(entry, 'domain') == 'mobile_app' and state.value | default(state) == 'loaded' %}{% set ns.loaded = true %}{% endif %}
-                      {% endfor %}
-                      {{ notify_name | length > 0 and ns.loaded }}
-                    device_ios: "{{ input_ios_live_view and (device_attr(repeat.item, 'manufacturer') | default('', true) | lower).startswith('apple') }}"
-                    view_media_url: "{{ (video_ios if device_ios else clip_url) if event_after.get('has_clip', false) else snapshot_url if event_after.get('has_snapshot', false) else live_deeplink }}"
-                    notification_actions: >-
-                      {% set media_title = 'View Clip' if event_after.get('has_clip', false) else 'View Snapshot' if event_after.get('has_snapshot', false) else 'View Live' %}
-                      {% set ns = namespace(actions=[dict(action='URI', title=media_title, uri=view_media_url)]) %}
-                      {% if input_dashboard | trim %}
-                        {% set ns.actions = ns.actions + [dict(action='URI', title='View Summary', uri=input_dashboard | trim)] %}
-                      {% elif view_media_url != live_deeplink %}
-                        {% set ns.actions = ns.actions + [dict(action='URI', title='View Live', uri=live_deeplink)] %}
-                      {% endif %}
-                      {% set ns.actions = ns.actions + [dict(action='SILENCE_' ~ this.entity_id ~ '__' ~ camera_key, title='Silence', behavior='textInput')] %}
-                      {% if device_ios %}
-                        {% if input_dashboard | trim and view_media_url != live_deeplink %}{% set ns.actions = ns.actions + [dict(action='URI', title='View Live', uri=live_deeplink)] %}{% endif %}
-                        {% if frigate_review_url %}{% set ns.actions = ns.actions + [dict(action='URI', title='Open Frigate', uri=frigate_review_url)] %}{% endif %}
-                      {% endif %}
-                      {{ ns.actions }}
-                - if: "{{ notify_ready }}"
-                  then:
-                    - service: "{{ notify_service }}"
-                      continue_on_error: true
-                      data:
-                        title: "{{ notification_title }}"
-                        message: "{{ notification_message }}"
-                        data:
-                          channel: "{{ camera_name }} Notifications"
-                          timeout: "{{ timeout_secs }}"
-                          tag: "{{ notification_tag }}"
-                          group: "{{ camera_name }}"
-                          ttl: 0
-                          priority: high
-                          notification_icon: "{{ icon }}"
-                          attachment:
-                            url: "{{ thumbnail_url ~ '?t=' ~ (as_timestamp(now()) | int) }}"
-                          image: "{{ thumbnail_url ~ '?format=android&t=' ~ (as_timestamp(now()) | int) }}"
-                          clickAction: "{{ view_media_url }}"
-                          url: "{{ view_media_url }}"
-                          push: "{{ {'interruption-level': 'passive' if quiet_update else 'active'} }}"
-                          alert_once: "{{ quiet_update or not activity_enabled }}"
-                          actions: "{{ notification_actions }}"
-                  else:
-                    - service: logbook.log
-                      data:
-                        name: Frigate Notification
-                        message: "Skipped notification device {{ repeat.item }}: its mobile app entry is missing or unloaded."
-          - if: "{{ input_cooldown_datetime | length > 0 }}"
-            then:
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: "{{ input_cooldown_datetime }}"
-                data:
-                  timestamp: "{{ as_timestamp(now()) | int }}"
-
+  # Yield once so HA publishes the current run count before admission.
+  - delay:
+      milliseconds: 0
+  # Leave headroom for event ingestion, including an entering run whose count
+  # may not yet have reached the state machine. Admission happens before
+  # awaiting network delivery, so concurrent END runs cannot all become waiters.
   - variables:
-      last_send_ts: "{{ state_attr(input_cooldown_datetime, 'timestamp') | float(0) if input_cooldown_datetime and normal_send_allowed else 0 }}"
-      last_send_context: "{{ states[input_cooldown_datetime].context.id if input_cooldown_datetime and normal_send_allowed else '' }}"
+      ai_eligible: >-
+        {{ event_type == 'end' and checks.allowed and
+           (input_ai_source in ['frigate', 'auto'] or
+            (input_ai_source == 'llmvision' and input_provider | string | trim | length > 0 and event_after.get('has_clip', false))) }}
+      ai_admitted: >-
+        {{ ai_eligible and state_attr(this.entity_id, 'current') | int(1) <=
+           [0, (state_attr(this.entity_id, 'max') | int(25)) - 6] | max }}
+      ai_wait_started: "{{ as_timestamp(now()) }}"
+      native_capture: {}
+      native_superseded: false
+  - if: "{{ checks.allowed }}"
+    then:
+      - event: frigate_ai_notification_activity
+        event_data:
+          automation_entity: "{{ this.entity_id }}"
+          camera: "{{ camera }}"
+  # HA starts the capture branch first. Event triggers are already loaded by the
+  # automation's mobile-action trigger; attach uses HA's eager trigger tasks.
+  # Join both branches before sending any AI result, so a slow basic delivery
+  # cannot subsequently replace the summary.
+  - parallel:
+      - sequence:
+          - if: "{{ ai_admitted and input_ai_source in ['frigate', 'auto'] }}"
+            then:
+              - wait_for_trigger:
+                  - trigger: event
+                    id: description
+                    event_type: frigate_ai_notification_description
+                    event_data:
+                      automation_entity: "{{ this.entity_id }}"
+                      event_id: "{{ id }}"
+                      camera: "{{ camera }}"
+                  - trigger: event
+                    id: description
+                    event_type: frigate_ai_notification_description
+                    event_data:
+                      automation_entity: "{{ this.entity_id }}"
+                      event_id: "{{ id }}"
+                      camera: ""
+                  - trigger: event
+                    id: superseded
+                    event_type: frigate_ai_notification_activity
+                    event_data:
+                      automation_entity: "{{ this.entity_id }}"
+                      camera: "{{ camera }}"
+                timeout:
+                  seconds: "{{ input_native_timeout }}"
+                continue_on_timeout: true
+              - if: "{{ wait.completed }}"
+                then:
+                  - variables:
+                      native_superseded: "{{ wait.trigger.id == 'superseded' }}"
+                      native_capture: "{{ wait.trigger.event.data if wait.trigger.id == 'description' else {} }}"
+      - sequence:
+          - choose:
+              - conditions: "{{ normal_send_allowed }}"
+                sequence:
+                  - repeat: &send_notification
+                      for_each: "{{ raw_device }}"
+                      sequence:
+                        - variables:
+                            notify_name: "{{ device_attr(repeat.item, 'name') | default('', true) }}"
+                            notify_service: "{{ 'notify.mobile_app_' ~ (notify_name | slugify) }}"
+                            notify_ready: >-
+                              {% set ns = namespace(loaded=false) %}
+                              {% set primary = device_attr(repeat.item, 'config_entry_id') %}
+                              {% set entries = [primary] if primary else device_attr(repeat.item, 'config_entries') or [] %}
+                              {% for entry in entries %}
+                                {% set state = config_entry_attr(entry, 'state') %}
+                                {% if config_entry_attr(entry, 'domain') == 'mobile_app' and state.value | default(state) == 'loaded' %}{% set ns.loaded = true %}{% endif %}
+                              {% endfor %}
+                              {{ notify_name | length > 0 and ns.loaded }}
+                            device_ios: "{{ input_ios_live_view and (device_attr(repeat.item, 'manufacturer') | default('', true) | lower).startswith('apple') }}"
+                            view_media_url: "{{ (video_ios if device_ios else clip_url) if event_after.get('has_clip', false) else snapshot_url if event_after.get('has_snapshot', false) else live_deeplink }}"
+                            notification_actions: >-
+                              {% set media_title = 'View Clip' if event_after.get('has_clip', false) else 'View Snapshot' if event_after.get('has_snapshot', false) else 'View Live' %}
+                              {% set ns = namespace(actions=[dict(action='URI', title=media_title, uri=view_media_url)]) %}
+                              {% if input_dashboard | trim %}
+                                {% set ns.actions = ns.actions + [dict(action='URI', title='View Summary', uri=input_dashboard | trim)] %}
+                              {% elif view_media_url != live_deeplink %}
+                                {% set ns.actions = ns.actions + [dict(action='URI', title='View Live', uri=live_deeplink)] %}
+                              {% endif %}
+                              {% set ns.actions = ns.actions + [dict(action='SILENCE_' ~ this.entity_id ~ '__' ~ camera_key, title='Silence', behavior='textInput')] %}
+                              {% if device_ios %}
+                                {% if input_dashboard | trim and view_media_url != live_deeplink %}{% set ns.actions = ns.actions + [dict(action='URI', title='View Live', uri=live_deeplink)] %}{% endif %}
+                                {% if frigate_review_url %}{% set ns.actions = ns.actions + [dict(action='URI', title='Open Frigate', uri=frigate_review_url)] %}{% endif %}
+                              {% endif %}
+                              {{ ns.actions }}
+                        - if: "{{ notify_ready }}"
+                          then:
+                            - service: "{{ notify_service }}"
+                              continue_on_error: true
+                              data:
+                                title: "{{ notification_title }}"
+                                message: "{{ notification_message }}"
+                                data:
+                                  channel: "{{ camera_name }} Notifications"
+                                  timeout: "{{ timeout_secs }}"
+                                  tag: "{{ notification_tag }}"
+                                  group: "{{ camera_name }}"
+                                  ttl: 0
+                                  priority: high
+                                  notification_icon: "{{ icon }}"
+                                  attachment:
+                                    url: "{{ thumbnail_url ~ '?t=' ~ (as_timestamp(now()) | int) }}"
+                                  image: "{{ thumbnail_url ~ '?format=android&t=' ~ (as_timestamp(now()) | int) }}"
+                                  clickAction: "{{ view_media_url }}"
+                                  url: "{{ view_media_url }}"
+                                  push: "{{ {'interruption-level': 'passive' if quiet_update else 'active'} }}"
+                                  alert_once: "{{ quiet_update or not activity_enabled }}"
+                                  actions: "{{ notification_actions }}"
+                          else:
+                            - service: logbook.log
+                              data:
+                                name: Frigate Notification
+                                message: "Skipped notification device {{ repeat.item }}: its mobile app entry is missing or unloaded."
+                  - if: "{{ input_cooldown_datetime | length > 0 }}"
+                    then:
+                      - variables:
+                          last_send_ts: "{{ as_timestamp(now()) | int }}"
+                          last_send_context: "{{ context.id }}"
+                      - service: input_datetime.set_datetime
+                        target:
+                          entity_id: "{{ input_cooldown_datetime }}"
+                        data:
+                          timestamp: "{{ last_send_ts }}"
 
-  # Native and LLMVision summaries share the final eligibility and stale-result guards.
+  - if: "{{ ai_eligible and not ai_admitted and input_debug }}"
+    then:
+      - service: logbook.log
+        data:
+          name: Frigate Notification
+          message: "AI capacity reached for {{ camera }} event {{ id }}; kept basic notifications available."
   - condition: template
-    value_template: >-
-      {{ event_type == 'end' and checks.allowed and
-         (input_ai_source in ['frigate', 'auto'] or
-          (input_ai_source == 'llmvision' and input_provider | string | trim | length > 0 and event_after.get('has_clip', false))) }}
+    value_template: "{{ ai_admitted and not native_superseded }}"
   - &check_activity
     condition: template
     value_template: "{{ not activity_enabled or (is_state(activity_timer, 'active') and states[activity_timer].context.id == activity_generation) }}"
   - variables:
-      response: {}
-      ai_wait_started: "{{ as_timestamp(now()) }}"
-  - choose:
-      - conditions: "{{ input_ai_source in ['frigate', 'auto'] }}"
-        sequence:
-          - wait_for_trigger:
-              - trigger: event
-                event_type: frigate_ai_notification_description
-                event_data:
-                  automation_entity: "{{ this.entity_id }}"
-                  event_id: "{{ id }}"
-                  camera: "{{ camera }}"
-              - trigger: event
-                event_type: frigate_ai_notification_description
-                event_data:
-                  automation_entity: "{{ this.entity_id }}"
-                  event_id: "{{ id }}"
-                  camera: ""
-            timeout:
-              seconds: "{{ input_native_timeout }}"
-            continue_on_timeout: true
-          - if: "{{ not wait.completed }}"
-            then:
-              - if: "{{ input_debug }}"
-                then:
-                  - service: logbook.log
-                    data:
-                      name: Frigate Notification
-                      message: "No matching Frigate {{ input_native_type }} text arrived for event {{ id }} before timeout. Auto will use the configured LLMVision fallback if eligible."
-              - if: "{{ input_ai_source == 'frigate' }}"
-                then:
-                  - stop: No native Frigate description received
-            else:
-              - variables:
-                  native_result: "{{ wait.trigger.event.data }}"
-                  response: "{{ dict(response_text=native_result.description, title=(native_result.title or base_title)) }}"
+      response: "{{ dict(response_text=native_capture.description, title=(native_capture.get('title') or base_title)) if native_capture else {} }}"
+  - if: "{{ input_ai_source in ['frigate', 'auto'] and not response }}"
+    then:
+      - if: "{{ input_debug }}"
+        then:
+          - service: logbook.log
+            data:
+              name: Frigate Notification
+              message: "No matching Frigate {{ input_native_type }} text arrived for event {{ id }} before timeout. Auto will use the configured LLMVision fallback if eligible."
+      - if: "{{ input_ai_source == 'frigate' }}"
+        then:
+          - stop: No native Frigate description received
   - if: "{{ not response }}"
     then:
       - condition: template

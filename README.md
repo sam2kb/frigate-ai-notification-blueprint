@@ -8,7 +8,7 @@
 
 ## Import the Blueprint
 
-Version `1.2.0` is available on `main` and requires Home Assistant 2026.3+. It adds native Frigate AI descriptions and an Auto source that prefers Frigate text before requesting LLMVision analysis. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) for verification and installation checks.
+Version `1.2.1` is available on `main` and requires Home Assistant 2026.3+. It fixes overlapping AI waits, native descriptions arriving during notification delivery, and concurrent camera mutes. Existing inputs and helpers need no changes. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) for verification and installation checks.
 
 [![Open your Home Assistant instance and import the blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fmain%2Ffrigate-ai-notification.yaml)
 
@@ -16,7 +16,7 @@ Version `1.2.0` is available on `main` and requires Home Assistant 2026.3+. It a
 
 ## Upgrading from 1.1.0
 
-Camera timers now use **Camera activity timers** picker rows only. If your automation still uses the old `activity_timers` YAML map, enter its camera/timer pairs as rows in the 1.1.0 editor before importing 1.2.0. Reuse the existing helpers. Automations already using rows need no timer changes.
+Camera timers now use **Camera activity timers** picker rows only. If your automation still uses the old `activity_timers` YAML map, enter its camera/timer pairs as rows in the 1.1.0 editor before importing 1.2.0 or later. Reuse the existing helpers. Automations already using rows need no timer changes.
 
 The description source stays at LLMVision for saved automations. Select **Auto (prefer Frigate)** or **Frigate (native)** to use native text. Enable the desired GenAI feature in Frigate first; importing the blueprint does not enable it.
 
@@ -210,9 +210,9 @@ Frigate introduced [object descriptions in 0.15](https://github.com/blakeblacksh
 
 The blueprint detects availability from valid text for the current object, rather than assuming all cameras support it. Native text arrives through `<prefix>/tracked_object_update` and `<prefix>/reviews`; both follow the prefix in **Frigate MQTT event topic**. **Frigate description topic override** accepts an exact custom topic when needed. Use Frigate's normal MQTT connection; there are no extra credentials or helper entities to configure.
 
-Keep object generation at object end enabled (`objects.genai.send_triggers.tracked_object_end` in current Frigate). The listener starts after the basic END card is sent: descriptions generated only earlier, results arriving after the timeout, and results missed during an automation reload are not replayed. This path does not fetch stored descriptions from the API. Review narratives can cover several objects; their detected object IDs and camera must match the pending notification. Source contracts verify the 0.18.0 and 0.18.2 publishers; feature introduction versions are not a claim that every older release has been regression-tested.
+Keep object generation at object end enabled (`objects.genai.send_triggers.tracked_object_end` in current Frigate). Native description capture starts alongside basic END delivery and the summary waits for that delivery to finish. Descriptions generated only earlier, results arriving after the timeout, and results missed during an automation reload are not replayed. This path does not fetch stored descriptions from the API. Review narratives can cover several objects; their detected object IDs and camera must match the pending notification. Source contracts verify the 0.18.0 and 0.18.2 publishers; feature introduction versions are not a claim that every older release has been regression-tested.
 
-Native text updates neither restart activity timers nor create fresh alerts. They update the optional preview helper, while LLMVision timeline and busy-helper options apply only to LLMVision calls. Waits occupy automation run slots; see the [compatibility limits](docs/frigate-0.18-compatibility.md).
+Newer eligible activity cancels an older native wait for the same camera. Native text updates neither restart activity timers nor create fresh alerts. They update the optional preview helper, while LLMVision timeline and busy-helper options apply only to LLMVision calls. Long AI waits are admitted only while the automation has processing headroom. Under heavy load, it keeps basic notifications and can skip an AI summary. See the [compatibility limits](docs/frigate-0.18-compatibility.md).
 
 ---
 
