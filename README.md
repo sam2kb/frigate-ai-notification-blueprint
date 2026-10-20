@@ -8,7 +8,7 @@
 
 ## Import the Blueprint
 
-Version `1.0.0` is available on `main` and requires Home Assistant 2026.3+. It includes the fixes tested in RC2. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) for automated coverage and installation checks, and the [RC1 review responses](docs/rc2-review-responses.md) for the review decisions.
+Version `1.1.0` is available on `main` and requires Home Assistant 2026.3+. It adds per-camera activity windows, helper pickers and clip context. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) for verification and installation checks.
 
 [![Open your Home Assistant instance and import the blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fmain%2Ffrigate-ai-notification.yaml)
 
@@ -26,14 +26,15 @@ Home Assistant 2026.3+ is the supported minimum. Existing input IDs are preserve
 
 - **Multi-camera**: monitor one or many Frigate cameras from a single automation.
 - **Multi-device notifications**: send to any number of mobile devices.
-- **iOS playback**: uses **HLS (.m3u8)** for recorded events on Apple devices when enabled. View Live opens the camera entity in HA.
+- **iOS playback**: uses MP4 with added clip context. With context set to zero and iOS Notification enabled, Apple devices use HLS. View Live opens the camera entity in HA.
 - **Action buttons**:
   - **View Clip** opens the event clip
   - **View Live** deep-links to the camera in HA
   - **Open Frigate** opens your configured Frigate UI URL on Apple devices
   - **Silence** mute per-camera for X minutes, or globally if you don't set a table
 - **Per-camera silence** (optional, recommended): provide an `input_text` helper to store a tiny JSON map of `{camera_slug: muted_until_epoch}`.
-- **Event updates**: notify when an event becomes eligible, its recording flag or zones change, a name is recognized, or a moving object gets a new snapshot.
+- **Camera activity windows**: use one timer per camera to group nearby detections into one notification, even when Frigate changes tracking IDs.
+- **Quiet updates**: clip availability, final event data and AI summaries replace the camera card. Snapshot and face-label changes alone do not resend it.
 - **Zone filtering** with wildcards:
   - Include / Exclude lists
   - Match by **entered**, **current**, or **either**
@@ -59,7 +60,7 @@ Frigate 0.18 event fields and notification media routes are covered by the [comp
 
 **Optional:**
 - **LLMVision** provider (leave blank to disable AI entirely)
-- **Input helpers** create in the same automation edit screen:
+- **Input helpers** select or create in the grouped helper sections:
   - `input_datetime` for a **global cooldown** (optional; enable only if you want to skip alerts during the cooldown)
   - `input_text` for the **per-camera silence table** (optional, recommended)
   - `input_boolean` as a simple **LLM “busy” gate** when several cameras run in parallel (optional)
@@ -74,36 +75,66 @@ Frigate 0.18 event fields and notification media routes are covered by the [comp
 2. **Pick your cameras** and **notification devices**.
 3. (Optional) Add **Camera name override map** if your HA camera entity ids do not match Frigate camera names.
 4. (Optional) Turn on **Require Zone Data** if you want to wait for zones to populate.
-5. (Optional) Turn on **iOS Notification** for HLS event playback on Apple devices. Android recipients keep MP4 links and three action buttons.
+5. (Optional) Turn on **iOS Notification** for extra Apple actions and HLS playback when Clip context is zero. With context enabled, both platforms use MP4. Android recipients keep three action buttons.
 6. (Optional) Add **zones** to include/exclude and set match type/logic.
 7. (Optional) Enable **LLMVision** by selecting a provider. Leave Model blank to use that provider's configured default.
-8. (Optional) Add **AI Description Log Helper**: select an `input_text` with maximum length 255 for a short dashboard preview. Use the LLMVision timeline for longer history.
+8. (Optional) Add **AI description preview** under Optional helpers: select or create a Text helper with maximum length 255 for a short dashboard preview. Use the LLMVision timeline for longer history.
 9. (Optional) Add a **Global cooldown** helper and duration if you want to throttle alerts across all cameras. Events during that interval can be skipped.
-10. (Recommended) Add **Per-camera silence table** helper: select an `input_text`, set its maximum length to 255, and initialize its value to `{}`.
+10. (Recommended) Add **Per-camera silence helper** under Camera activity and silence: select or create a Text helper with maximum length 255. An empty value is ready to use.
 11. If Frigate uses a custom MQTT `topic_prefix`, set **Frigate MQTT event topic** to `<prefix>/events`.
 12. **Save** and test.
 
 ---
 
+## Helper setup
+
+The form keeps **Camera activity and silence** together, followed by a collapsed **Optional helpers and global cooldown** section. Use each helper picker's **Create helper** option to create and select a helper without leaving the automation editor. Typing a new entity ID alone does not create it. A standard blueprint cannot create these helpers automatically when imported.
+
+| Helper | When to use it | Setup |
+| --- | --- | --- |
+| Camera activity timer | One per camera for quiet-window grouping | Add a camera/timer row. Select or create a Timer and enable Restore. |
+| Per-camera silence | Recommended for the Silence button | Select or create a Text helper, maximum length 255. Empty is fine. |
+| Global cooldown timestamp | Only with a nonzero global cooldown | Select or create a Date and time helper with both enabled. |
+| AI busy flag | Optional when coordinating AI analysis | Select or create a Toggle. Leave blank when AI is off. |
+| AI description preview | Optional short AI dashboard history | Select or create a Text helper, maximum length 255. |
+
+For independent camera alerts, leave Global cooldown at zero. Changing its duration does not change the per-camera quiet period. The AI helpers can stay blank when no provider is selected.
+
+Existing `activity_timers` mappings remain supported under **Previous timer setup**. New rows take precedence for the same camera. To move an existing setup into the form, add its camera/timer pairs as rows, then clear the previous mapping. Reuse the existing helpers.
+
+---
+
 ## 📲 How the Notification Behaves
 
-Initial and update notifications use the normalized Frigate camera ID as their tag. The final END card uses the Frigate event ID, and the AI summary replaces that final card. Repeated tags replace the corresponding notification. `alert_once: true` keeps Android replacements from alerting again.
+Every stage uses the same automation-and-camera notification tag, including END and AI summaries. A completed object no longer creates a second card. Different cameras and different automations have separate tags.
 
-On iOS, updates and AI replacements may alert again according to the phone's notification settings. Android's `alert_once` option does not control iOS sounds or banners.
+For one alert per camera until it has been quiet for two minutes, open **Camera activity and silence** and add a row under **Camera activity timers**. Pick a camera, select or create its Timer helper, and enable Restore. Repeat for each monitored camera. Set **Camera quiet period** to 120 seconds.
 
-The blueprint handles each MQTT `new`, `update`, and `end` message directly. An event no longer depends on a waiting loop being active when END arrives. Updates notify when an event becomes eligible, its recording flag changes, its recognized name or zones change, or a moving object gets a new snapshot.
+The form saves the following blueprint inputs under `use_blueprint.input`:
 
-- **Initial alert** on new Frigate event if it passes your filters.
-- **Update alerts** on important changes:
-  - The event's recording flag becomes true
-  - Sub-label recognition changes
-  - Zone match list changes - entered/current
-  - New snapshot timestamp
-- **End alert** when the event finishes and its final data passes your filters.
-- **AI summary** after END, subject to the same filters, manual silence, and global cooldown. The event's own final card does not block its summary; another event's cooldown can.
+```yaml
+activity_timer_rows:
+  - camera: camera.front
+    timer: timer.frigate_activity_front
+  - camera: camera.doorbell
+    timer: timer.frigate_activity_doorbell
+activity_quiet_seconds: 120
+```
+
+Use a different helper for every camera and automation. A missing, unavailable or shared timer, or a repeated camera row, stops the run and writes a configuration message to the logbook. Cameras without a timer keep direct event notifications.
+
+The first eligible detection alerts. Every eligible Frigate message renews that camera's timer, including updates that produce no notification. A changed tracking ID does not start a new window. Once the timer expires, the next eligible detection alerts again, even if the old notification is still on the phone. The window tracks attempted alerts; it cannot confirm phone delivery.
+
+With activity timers enabled, a newly eligible detection updates the camera card quietly to its own media, even during an existing window. It does not wait for END. Clip availability and END messages also update the existing card quietly. Android replacements use `alert_once`; Apple replacements use the passive interruption level. Face-label and snapshot changes alone do not resend the card. A new activity window uses an active notification. Phone settings still control how notifications appear and sound.
+
+Cameras without an activity timer keep direct event notifications, with the same stable camera tag and fewer update sends. Android uses alert-once for those replacements; Apple event updates can still alert. Configure activity timers for the quiet-window behavior. Existing zone, quality and optional known-face filters still determine eligibility. Known-face suppression trusts Frigate's label and can hide a real alert if recognition is wrong; leave it empty when recognition is unreliable. Recognition labels are displayed as Frigate metadata, not a confirmed identity.
+
+Optional AI analysis still uses object IDs to fetch clips. With activity timers enabled, later camera activity supersedes pending analysis and prevents an older result from replacing newer activity. This limits the summary to the latest clip; it does not combine the whole walk or all tracked objects into one video. A result that arrives after its activity timer expires is also skipped.
+
+The blueprint handles MQTT `new`, `update` and `end` messages directly. Grouping uses camera activity and timing, not face names or tracked-object identity. Activity grouping is available from v1.1.0. Configure a timer for each camera to enable its quiet window.
 
 **Buttons you'll see:**
-- **View Clip** → opens the Frigate clip or HLS on iOS if enabled; events without a recording offer View Snapshot or View Live
+- **View Clip** → opens the Frigate clip (HLS on iOS when enabled and Clip context is zero); events without a recording offer View Snapshot or View Live
 - **View Live** → deep-links to the camera entity in HA
 - **Open Frigate** → opens your configured Frigate UI URL on iOS
 - **Silence** → mutes **just this camera** for X minutes (type a number);
@@ -135,11 +166,20 @@ Android supports three action buttons: View Clip, View Live, and Silence. If a s
 
 - **Silence button**: per-camera mute for X minutes - requires the optional `input_text` table.
 - The global mute fallback uses a running delay to turn the automation back on. Restarting HA or reloading automations during that delay cancels it and can leave the automation off. Use the silence table for mutes that survive restarts.
-- **Global cooldown**: throttles sends across cameras (optional `input_datetime`, configured with both date and time). There is no hardcoded per-camera auto-mute.
+- **Camera quiet period**: defaults to 120 seconds when activity timers are mapped. It restarts on each eligible message and affects only that camera. A continuous false detection can keep a window open, and missing MQTT messages can let it expire.
+- **Global cooldown**: optionally throttles sends across all cameras using an `input_datetime` with both date and time. Leave it at zero to keep the camera windows independent.
 - **Signal quality filters**:
   - **Minimum score** (default 0.6)
   - **Require Event Recording** (`has_clip=true`; this indicates retention, not that a clip has finished writing)
   - **Ignore likely false positives**
+
+---
+
+## Clip coverage
+
+MP4 links include 10 seconds before the tracked event and 10 seconds after it ends, when Frigate has those recordings. Adjust **Clip context (seconds)** under Advanced Options, or set it to zero for the original event boundaries. Alerts still arrive immediately; opening an ongoing event plays only the footage available at that moment.
+
+Frigate can split one walk into short object tracks. The camera card opens the latest eligible track with this added context; it does not combine the whole activity window into one video. Apple and Android use MP4 when context is enabled. Event HLS playback does not reliably apply padding, so Apple uses HLS only with context set to zero and iOS Notification enabled. LLMVision's event-ID analysis keeps its existing boundaries. Keep recording retention long enough to preserve the lead-in you want to see.
 
 ---
 
@@ -164,7 +204,7 @@ LLMVision resolves event clips using Home Assistant's own URL selection. HA must
 
 ### 📝 AI Description Log
 
-The **AI Description Log Helper** (`input_text`) stores a short preview when analysis succeeds. It remains available after the notification is dismissed. Set its maximum length to 255 characters. New entries are prepended, and the combined text is truncated to the helper's configured limit. A single description may fill the entire helper.
+The **AI description preview** helper (`input_text`) stores a short preview when analysis succeeds. It remains available after the notification is dismissed. Set its maximum length to 255 characters. New entries are prepended, and the combined text is truncated to the helper's configured limit. A single description may fill the entire helper.
 
 Entries include a timestamp and camera name:
 
@@ -186,7 +226,7 @@ content: "{{ states('input_text.frigate_ai_log') }}"
 ## 🔗 Links the Blueprint Builds for You
 
 - `clip_url` - the event MP4
-- `video_ios` - the event HLS playlist
+- `video_ios` - the padded MP4, or the event HLS playlist when Clip context is zero
 - `snapshot_url` / `thumbnail_url` - still images
 - `frigate_review_url` - opens the configured Frigate UI URL
 - `live_deeplink` - opens your camera entity in HA using `/?more-info-entity-id=camera.example`, for both notification taps and View Live buttons

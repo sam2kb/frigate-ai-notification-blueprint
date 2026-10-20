@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented here.
 
+## [1.1.0] - 2026-10-19
+- Replace manual timer-map setup with camera/timer picker rows and inline helper creation. Group activity/silence controls separately from optional AI helpers and the global cooldown. Keep saved helper input IDs and previous mappings compatible; reject repeated camera rows.
+- Include 10 seconds of context on each side of MP4 event clips when recordings are available. Add a setting from 0 to 60 seconds; alerts stay immediate. Apple uses the same padded MP4 links; set context to zero to keep HLS when iOS Notification is enabled. AI clip boundaries are unchanged.
+- Refresh a camera card as soon as another detection passes its filters during an active window. Keep the replacement quiet instead of leaving the previous clip until the new event ends.
+- Add optional per-camera activity timers, with a default two-minute quiet period. Grouping survives tracking-ID changes and does not compare recognized names. Each camera needs its own restored timer helper.
+- Keep one automation-and-camera notification tag for initial alerts, clip updates, END messages and AI summaries. New windows alert again; updates use Android alert-once and passive Apple delivery.
+- Stop snapshot-only and face-label-only resends. Present recognized names as unverified Frigate labels, and tell the AI provider not to assume identity from them.
+- Skip pending AI work and results superseded by later camera activity. Preserve filters, manual silence and the optional global cooldown.
+- Expand to 72 real-HA regression scenarios, covering split tracks, rolling quiet windows, simultaneous starts, independent cameras, invalid/shared timers, helper-form migration, quiet media updates and stale AI results. Pass on HA 2026.3.0 and 2026.10.2, with Frigate 0.18.0/0.18.2 source contracts and captured-walk replays.
+
 ## [1.0.0] - 2026-10-19
 - Promote the tested RC2 implementation to `main`. Update the blueprint version, source URL and README import badge for the stable release; runtime behavior is unchanged from RC2.
 - V1 fixes zone exclusions and `all` matching, final-event data handling, AI filter/cooldown bypasses, notification links, provider readiness and helper cleanup. It also adds custom labels, rejection diagnostics and automated compatibility checks.

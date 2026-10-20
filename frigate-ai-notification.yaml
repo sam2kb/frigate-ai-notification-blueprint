@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [1.0.0] Multi-camera notifications powered by Frigate and optional LLMVision summaries.
+    [1.1.0] Multi-camera notifications powered by Frigate and optional LLMVision summaries.
     Filter by detection quality, zones and recognized faces, with optional silence and cooldown controls.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -75,23 +75,6 @@ blueprint:
           mode: dropdown
           options: [any, all]
 
-    cooldown:
-      name: Global Cooldown
-      description: The cooldown is a global throttle for push notifications and LLM step from firing too often. Turning this on will lead to missed/skipped notifications.
-      default: { hours: 0, minutes: 0, seconds: 0 }
-      selector:
-        duration:
-          enable_day: true
-
-    cooldown_timestamp:
-      name: Global Cooldown Helper (optional)
-      description: Datetime helper used the global cooldown above. Open the picker → select "Create" → name it "Frigate Notification Cooldown" → select "Date and Time" → Create.
-      default: ""
-      selector:
-        entity:
-          domain: [input_datetime]
-          multiple: false
-
     notify_device:
       name: Mobile Devices
       description: Select devices (Home Assistant Companion app) to receive the notification.
@@ -99,6 +82,106 @@ blueprint:
         device:
           integration: mobile_app
           multiple: true
+
+    activity_and_silence:
+      name: Camera activity and silence
+      icon: mdi:timer-outline
+      description: Group each camera's activity into one alert and configure the Silence button.
+      collapsed: false
+      input:
+        activity_timer_rows:
+          name: Camera activity timers
+          description: >-
+            Add one row per monitored camera. Select a camera, then select or create its own Timer helper.
+            In the timer picker, choose Create helper and enable Restore. Keep each timer exclusive
+            to this camera and automation. Cameras without a row keep direct event notifications.
+          default: []
+          selector:
+            object:
+              multiple: true
+              label_field: camera
+              description_field: timer
+              fields:
+                camera:
+                  label: Camera
+                  required: true
+                  selector:
+                    entity:
+                      filter: { domain: camera }
+                timer:
+                  label: Activity timer
+                  required: true
+                  selector:
+                    entity:
+                      filter: { domain: timer }
+
+        activity_quiet_seconds:
+          name: Camera quiet period
+          description: Seconds without eligible activity before that camera can alert again.
+          default: 120
+          selector:
+            number: { min: 10, max: 1800, step: 10, unit_of_measurement: seconds, mode: box }
+
+        silence_table:
+          name: Per-camera silence helper (recommended)
+          description: >-
+            Select or create a Text helper with maximum length 255 for the Silence button.
+            An empty value is ready to use; the automation maintains the camera mute times.
+            Without this helper, Silence temporarily disables the whole automation and a restart
+            can interrupt its automatic re-enable.
+          default: ""
+          selector:
+            entity:
+              domain: [input_text]
+              multiple: false
+
+    optional_helpers:
+      name: Optional helpers and global cooldown
+      icon: mdi:form-select
+      description: Leave these blank or at zero unless you use global throttling or AI features.
+      collapsed: true
+      input:
+        cooldown:
+          name: Global cooldown (optional)
+          description: Leave at 0 for independent per-camera alerts. A nonzero duration throttles all cameras together and needs the timestamp helper below; alerts during that interval are skipped.
+          default: { hours: 0, minutes: 0, seconds: 0 }
+          selector:
+            duration:
+              enable_day: true
+
+        cooldown_timestamp:
+          name: Global cooldown timestamp (optional)
+          description: >-
+            Needed only for a nonzero Global cooldown. Select or create a Date and time helper
+            with both date and time enabled. Leave blank when Global cooldown is 0.
+          default: ""
+          selector:
+            entity:
+              domain: [input_datetime]
+              multiple: false
+
+        helper:
+          name: AI busy flag (optional)
+          description: >-
+            Optional shared flag when AI analyses should wait for one another. Select or create
+            a Toggle helper. Leave blank when AI is off. Analysis errors release it before retrying.
+          default: ""
+          selector:
+            entity:
+              domain: [input_boolean]
+              multiple: false
+
+        log_helper:
+          name: AI description preview (optional)
+          description: >-
+            Optional Text helper for a short dashboard preview of AI descriptions. Set maximum
+            length to 255. New descriptions appear first, within the helper capacity; use the
+            LLMVision timeline for longer history. Leave blank when AI is off.
+          default: ""
+          selector:
+            entity:
+              domain: [input_text]
+              multiple: false
 
     notification_customization:
       name: Notification Customization
@@ -108,7 +191,7 @@ blueprint:
       input:
         ios_live_view:
           name: iOS Notification
-          description: Enable HLS playback and extra actions for Apple devices. Android recipients keep MP4 links and at most three actions.
+          description: Enable extra actions for Apple devices. Clips use MP4 when Clip context is above zero, or HLS when it is zero. Android recipients keep MP4 links and at most three actions.
           default: false
           selector: { boolean: {} }
         append:
@@ -162,28 +245,6 @@ blueprint:
       description: Tweak LLMVision settings and options
       collapsed: true
       input:
-        helper:
-          name: Input Helper
-          description: >
-            Optional shared busy flag for LLM analysis. Analysis errors release the flag before retrying.
-            Open the picker → select "Create" → name it "Frigate LLM Busy" → Create.
-          default: ""
-          selector:
-            entity:
-              domain: [input_boolean]
-              multiple: false
-        log_helper:
-          name: AI Description Log Helper
-          description: >
-            Optional Input Text helper to persist AI-generated descriptions beyond the notification.
-            Create an Input Text helper (e.g. "Frigate AI Log"), set its maximum length to 255, and select it here.
-            Stores the latest descriptions, newest first, up to the helper maximum length (255 characters at most).
-            Longer history is available in LLMVision's timeline; this helper is a short dashboard preview.
-          default: ""
-          selector:
-            entity:
-              domain: [input_text]
-              multiple: false
         dashboard:
           name: Event Summary Dashboard
           description: Optional dashboard URL opened by the "View Summary" action; leave blank to hide the button.
@@ -229,7 +290,7 @@ blueprint:
             company names or uniform details. Describe activity relevant to the general monitored area without referencing
             camera angles, timestamps, or observers. Present the events as if witnessed in real time, avoiding frame-by-frame
             descriptions or introductory phrases. Summarize naturally in a single, cohesive narrative, keeping it concise and
-            suitable for brief notifications. When context strongly suggests a likely outcome, describe it confidently. Do not
+            suitable for brief notifications. Describe visible actions without guessing identity or intent. State uncertainty when relevant. Do not
             mention the absence of activity or objects, nor conclude with statements about what was or wasn’t observed.
           selector:
             text:
@@ -292,6 +353,17 @@ blueprint:
           description: Local URL for Home Assistant. Used when External Base URL is empty; leave both empty for Companion app relative links.
           default: ""
           selector: { text: {} }
+        clip_padding_seconds:
+          name: Clip context (seconds)
+          description: >-
+            Recorded playback includes this many seconds before the tracked event and after it ends,
+            when recordings are available. Live events play only up to the available footage.
+            Uses MP4 on Apple and Android because event HLS playback does not reliably apply padding.
+            Does not delay alerts, extend recording retention, or change AI analysis.
+            Set to 0 for original event boundaries and HLS on Apple when iOS Notification is enabled.
+          default: 10
+          selector:
+            number: { min: 0, max: 60, step: 1, unit_of_measurement: seconds, mode: box }
         frigate_url:
           name: Frigate Instance URL
           description: Optional. Full base URL to your Frigate UI (include port if needed), e.g. https://frigate.lan:8971
@@ -314,18 +386,6 @@ blueprint:
           selector:
             text:
               multiline: true
-        # Manual per-camera silence; automatic throttling uses the cooldown input.
-        silence_table:
-          name: Per-Camera Silence Table (input_text)
-          description: >
-            Recommended. Input Text helper storing a JSON map of {camera_slug: silent_until_ts}.
-            Create an Input Text (e.g. "Frigate Silence Table"), set its maximum length to 255 and value to "{}", and select it here.
-            If not set, the Silence button mutes the whole automation temporarily. Existing active mutes must fit in the helper.
-          default: ""
-          selector:
-            entity:
-              domain: [input_text]
-              multiple: false
         debug:
           name: Debugging
           description: Enable debug logging for this automation.
@@ -338,6 +398,23 @@ blueprint:
           selector:
             number:
               { min: 1, max: 48, step: 1, unit_of_measurement: hours, mode: slider }
+
+    legacy_activity_setup:
+      name: Previous timer setup
+      icon: mdi:history
+      description: Existing YAML mappings remain supported. New installations can leave this section empty.
+      collapsed: true
+      input:
+        activity_timers:
+          name: Previous camera timer map
+          description: >-
+            Compatibility input for existing automations. Use Camera activity timers above for new setup.
+            Existing camera-to-timer maps still work, for example
+            {"camera.front": "timer.frigate_activity_front"}. Enable Restore on each timer.
+            One alert per camera starts an activity window; tracking IDs and recognized names
+            do not split it. Unmapped cameras keep direct event notifications.
+          default: {}
+          selector: { object: {} }
 
 trigger:
   - trigger: mqtt
@@ -371,7 +448,11 @@ action:
       input_base_url: !input base_url
       input_local_url: !input local_url
       input_frigate_url: !input frigate_url
+      input_clip_padding: !input clip_padding_seconds
       input_notification_timeout: !input notification_timeout
+      input_activity_timers: !input activity_timers
+      input_activity_timer_rows: !input activity_timer_rows
+      activity_quiet_seconds: !input activity_quiet_seconds
       input_cooldown: !input cooldown
       input_cooldown_datetime: !input cooldown_timestamp
       input_silence_table: !input silence_table
@@ -404,6 +485,33 @@ action:
       silence_table: {}
   - variables:
       camera_map: "{{ input_camera_name_map | from_json({}) }}"
+      activity_rows: "{{ input_activity_timer_rows if input_activity_timer_rows is sequence and input_activity_timer_rows is not string and input_activity_timer_rows is not mapping else [] }}"
+      activity_timer_map: >-
+        {% set ns = namespace(pairs=[], overrides=[], previous=[]) %}
+        {% for row in activity_rows if row is mapping %}
+          {% if row.get('camera') is string and row.get('timer') is string %}
+            {% set slug = row.camera | replace('camera.', '') | lower | replace('-', '_') %}
+            {% set mapped = (camera_map.get(row.camera, camera_map.get(slug, slug)) if camera_map is mapping else slug) | string | lower | replace(' ', '_') | replace('-', '_') %}
+            {% set ns.overrides = ns.overrides + [row.camera, mapped] %}
+            {% set ns.pairs = ns.pairs + [(row.camera, row.timer)] %}
+          {% endif %}
+        {% endfor %}
+        {% if input_activity_timers is mapping %}
+          {% for key, timer in input_activity_timers.items() if key not in ns.overrides %}
+            {% set ns.previous = ns.previous + [(key, timer)] %}
+          {% endfor %}
+        {% endif %}
+        {{ dict(ns.previous + ns.pairs) }}
+      activity_rows_invalid: >-
+        {% set ns = namespace(cameras=[], invalid=(input_activity_timer_rows is string or input_activity_timer_rows is mapping or input_activity_timer_rows is not sequence)) %}
+        {% for row in activity_rows %}
+          {% if row is not mapping or row.get('camera') is not string or row.get('timer') is not string or row.get('camera', '') in ns.cameras or not row.get('camera', '').startswith('camera.') or not row.get('timer', '').startswith('timer.') %}
+            {% set ns.invalid = true %}
+          {% else %}
+            {% set ns.cameras = ns.cameras + [row.camera] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.invalid }}
   - variables:
       camera_map: "{{ camera_map if camera_map is mapping else {} }}"
       camera_entity: >-
@@ -414,6 +522,9 @@ action:
           {% if mapped == camera_key and not ns.entity %}{% set ns.entity = ent %}{% endif %}
         {% endfor %}
         {{ ns.entity }}
+      activity_timer: "{{ activity_timer_map.get(camera_entity, activity_timer_map.get(camera_key, '')) | string | trim }}"
+      activity_enabled: "{{ activity_timer | length > 0 }}"
+      activity_timer_shared: "{{ activity_enabled and activity_timer_map.values() | select('eq', activity_timer) | list | length > 1 }}"
       silence_table_enabled: "{{ input_silence_table | default('', true) | length > 0 }}"
       cooldown_secs: >-
         {{ (input_cooldown.get('days', 0) | int(0)) * 86400
@@ -570,9 +681,7 @@ action:
            and (event_after.get('snapshot_time') or snapshot_after.get('frame_time')) != (event_before.get('snapshot_time') or snapshot_before.get('frame_time')) }}
       meaningful_update: >-
         {{ (not before_checks.allowed and checks.allowed)
-           or (event_after.get('has_clip', false) and not event_before.get('has_clip', false))
-           or checks.name != before_checks.name or checks.zones | sort != before_checks.zones | sort
-           or (snapshot_changed and not event_after.get('stationary', event_after.get('motionless', false))) }}
+           or (event_after.get('has_clip', false) and not event_before.get('has_clip', false)) }}
       camera_name: >-
         {% set n = camera | replace('_', ' ') | replace('-', ' ') | title %}
         {% if input_expand %}{% set n = n | regex_replace('(?i)\\bcam\\b', 'Camera') %}{% endif %}
@@ -585,15 +694,16 @@ action:
         {{ {'person': 'mdi:account-outline', 'dog': 'mdi:dog', 'cat': 'mdi:cat', 'car': 'mdi:car'}.get(event_after.get('label'), 'mdi:home-assistant') }}
       # Relative paths are resolved by the Companion app against the sending HA server.
       effective_base_url: "{{ ((input_base_url | trim) or (input_local_url | trim)) | regex_replace('/+$', '') }}"
-      clip_url: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/{{ camera }}/clip.mp4"
+      clip_padding: "{{ [[input_clip_padding | int(10), 0] | max, 60] | min }}"
+      clip_url: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/{{ camera }}/clip.mp4?padding={{ clip_padding }}"
       snapshot_url: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/snapshot.jpg"
       thumbnail_url: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/thumbnail.jpg"
-      video_ios: "{{ effective_base_url }}/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8"
+      video_ios: "{{ clip_url if clip_padding > 0 else effective_base_url ~ '/api/frigate/notifications/' ~ id ~ '/' ~ camera ~ '/master.m3u8' }}"
       live_deeplink: "/?more-info-entity-id={{ camera_entity }}"
       frigate_review_url: "{{ input_frigate_url | trim | regex_replace('/+$', '') }}"
-      notification_title: "{{ (sub_label_text ~ ' detected') if sub_label_text else base_title }}"
-      notification_message: "{{ base_message ~ (' (' ~ sub_label_text ~ ')' if sub_label_text else '') }}"
-      notification_tag: "{{ id if event_type == 'end' else camera_key }}"
+      notification_title: "{{ base_title }}"
+      notification_message: "{{ base_message ~ (' (Frigate label: ' ~ sub_label_text ~ ')' if sub_label_text else '') }}"
+      notification_tag: "{{ this.entity_id ~ '::' ~ camera_key }}"
       timeout_secs: "{{ (input_notification_timeout | float * 3600) | int }}"
 
   - choose:
@@ -612,7 +722,53 @@ action:
         {{ not input_cooldown_datetime or cooldown_secs | int <= 0
            or (last_send_ts | float > 0 and last == last_send_ts | float and states[input_cooldown_datetime].context.id == last_send_context)
            or as_timestamp(now()) - last >= cooldown_secs | int }}
-      normal_send_allowed: "{{ checks.allowed and (event_type in ['new', 'end'] or meaningful_update) and not_silenced and cooldown_available }}"
+      activity_first: "{{ not activity_enabled or not is_state(activity_timer, 'active') }}"
+
+  - if: "{{ activity_rows_invalid or (activity_enabled and (activity_timer_shared or not activity_timer.startswith('timer.') or states(activity_timer) in ['unknown', 'unavailable'])) }}"
+    then:
+      - service: logbook.log
+        data:
+          name: Frigate Notification
+          message: "Activity timer {{ activity_timer }} is missing, unavailable, or shared by cameras for {{ camera_entity }}, or Camera activity timers contains an invalid or repeated camera row. Use one row per camera with its own restored Timer helper."
+      - stop: Activity timer unavailable
+
+  # Each camera owns its timer, so updates cannot overwrite another camera's state.
+  # A short claim settles simultaneous starts. Active updates do not overwrite that
+  # claim during its settling interval; one claiming context sends the alert.
+  - if: "{{ activity_enabled and checks.allowed and not_silenced and cooldown_available }}"
+    then:
+      - if: >-
+          {{ activity_first or as_timestamp(now()) -
+             as_timestamp(states[activity_timer].last_changed) >= 0.25 }}
+        then:
+          - service: timer.start
+            target:
+              entity_id: "{{ activity_timer }}"
+            data:
+              duration: "{{ activity_quiet_seconds | int }}"
+      - if: "{{ activity_first }}"
+        then:
+          - delay:
+              milliseconds: 100
+          - variables:
+              activity_first: "{{ states[activity_timer].context.id == context.id }}"
+
+  - *read_silence
+  - variables:
+      not_silenced: *not_silenced
+      cooldown_available: *cooldown_available
+      activity_generation: "{{ states[activity_timer].context.id if activity_enabled else '' }}"
+      quiet_update: "{{ activity_enabled and not activity_first }}"
+      normal_send_allowed: >-
+        {{ checks.allowed and not_silenced and cooldown_available and
+           ((activity_enabled and activity_first) or event_type == 'end' or meaningful_update or
+            (not activity_enabled and event_type == 'new')) }}
+  - if: "{{ input_debug and checks.allowed }}"
+    then:
+      - service: logbook.log
+        data:
+          name: Frigate Notification
+          message: "Activity: camera={{ camera }} timer={{ activity_timer or 'disabled' }} first={{ activity_first }} send={{ normal_send_allowed }} quiet={{ quiet_update }} tag={{ notification_tag }}."
   - choose:
       - conditions: "{{ normal_send_allowed }}"
         sequence:
@@ -667,9 +823,8 @@ action:
                           image: "{{ thumbnail_url ~ '?format=android&t=' ~ (as_timestamp(now()) | int) }}"
                           clickAction: "{{ view_media_url }}"
                           url: "{{ view_media_url }}"
-                          push:
-                            interruption-level: active
-                          alert_once: true
+                          push: "{{ {'interruption-level': 'passive' if quiet_update else 'active'} }}"
+                          alert_once: "{{ quiet_update or not activity_enabled }}"
                           actions: "{{ notification_actions }}"
                   else:
                     - service: logbook.log
@@ -702,6 +857,9 @@ action:
           message: The selected LLMVision provider is not loaded. Check its integration configuration.
       - stop: LLMVision provider unavailable
   - delay: "00:00:30"
+  - &check_activity
+    condition: template
+    value_template: "{{ not activity_enabled or (is_state(activity_timer, 'active') and states[activity_timer].context.id == activity_generation) }}"
   - *read_silence
   - condition: template
     value_template: *not_silenced
@@ -715,6 +873,7 @@ action:
         continue_on_timeout: false
 
   # Recheck after waiting: a user may have silenced the camera in the meantime.
+  - *check_activity
   - *read_silence
   - condition: template
     value_template: *not_silenced
@@ -730,6 +889,7 @@ action:
               timeout: "00:03:00"
               continue_on_timeout: false
         - *check_provider
+        - *check_activity
         - *read_silence
         - if:
             - condition: template
@@ -766,7 +926,7 @@ action:
             event_id: "{{ id }}"
             message: >-
               {{ input_prompt }}
-              {% if input_sublabel and sub_label_text %}Frigate identified the subject as {{ sub_label_text }}.{% endif %}
+              {% if input_sublabel and sub_label_text %}Unverified Frigate face label: {{ sub_label_text }}. Do not assume it identifies the person.{% endif %}
           response_variable: response
         # Release before logging or notification work, including on analyzer errors.
         - if: "{{ input_helper | length > 0 }}"
@@ -789,6 +949,7 @@ action:
           message: "AI analysis failed for {{ camera }} event {{ id }} after {{ input_frigate_retry_attempts }} attempts."
       - stop: No AI summary returned
 
+  - *check_activity
   - variables:
       summary_title: "{{ (response.get('title') or response.get('response_title') or base_title) if input_generate_title else base_title }}"
   - if: "{{ input_log_helper | length > 0 }}"
@@ -814,7 +975,7 @@ action:
   - variables:
       notification_title: "{{ summary_title }}"
       notification_message: "{{ response.get('response_text', base_message) }}"
-      notification_tag: "{{ id }}"
+      quiet_update: true
   - repeat: *send_notification
   - if: "{{ input_cooldown_datetime | length > 0 }}"
     then:

@@ -31,7 +31,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.script import Script
-from homeassistant.helpers.selector import SelectSelector
+from homeassistant.helpers.selector import ObjectSelector, SelectSelector
 from homeassistant.setup import async_setup_component
 from homeassistant.util.yaml import load_yaml_dict
 
@@ -129,8 +129,15 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         self.clock = datetime.fromtimestamp(1800000000, timezone.utc)
         self.time_patch = patch("homeassistant.util.dt.now", side_effect=lambda *args: self.clock)
         self.time_patch.start()
+        self.utc_patch = patch("homeassistant.util.dt.utcnow", side_effect=lambda: self.clock)
+        self.utc_patch.start()
+        self.epoch_patch = patch("homeassistant.core.time.time", side_effect=lambda: self.clock.timestamp())
+        self.epoch_patch.start()
+        self.entity_clock_patch = patch("homeassistant.helpers.entity.timer", side_effect=lambda: self.clock.timestamp())
+        self.entity_clock_patch.start()
         for domain, config in {
             "input_text": {"silence": {"max": 255, "initial": "{}"}, "small_silence": {"max": 30, "initial": "{}"}, "ai_log": {"max": 255, "initial": ""}, "small_log": {"max": 40, "initial": ""}},
+            "timer": {"front_activity": {"duration": "00:02:00", "restore": True}, "back_activity": {"duration": "00:02:00", "restore": True}},
             "input_boolean": {"busy": {"initial": False}},
             "input_datetime": {"cooldown": {"has_date": True, "has_time": True}},
         }.items():
@@ -186,6 +193,9 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.hass.async_stop()
         self.time_patch.stop()
+        self.utc_patch.stop()
+        self.epoch_patch.stop()
+        self.entity_clock_patch.stop()
         self.temp.cleanup()
 
     async def run_event(self, kind="new", before=None, after=None, inputs=None, mobile=None):
@@ -242,7 +252,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         for kind in ("new", "update", "end"):
             await publish(json.dumps(message | {"type": kind}), "custom/events")
         self.assertEqual(len(self.notifications), 3)
-        self.assertEqual(self.notifications[-1]["data"]["tag"], tracked()["id"])
+        self.assertEqual(self.notifications[-1]["data"]["tag"], "automation.frigate_test::front_door")
 
     async def test_actual_mqtt_trigger_rejects_invalid_json_and_non_object_payloads(self):
         publish = await self.attach_triggers({"debug": True})
@@ -338,7 +348,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(self.hass.async_block_till_done(), timeout=5)
         self.assertEqual(len(self.ai_calls), 2)
         self.assertEqual(len(self.notifications), 4)
-        self.assertEqual(sorted(n["data"]["tag"] for n in self.notifications), sorted([first["id"], first["id"], second["id"], second["id"]]))
+        self.assertEqual(sorted(n["data"]["tag"] for n in self.notifications), sorted(["automation.frigate_test::front_door"] * 2 + ["automation.frigate_test::back_yard"] * 2))
         self.assertEqual(self.hass.states.get("input_boolean.busy").state, "off")
 
     async def test_default_notification_urls_and_actions(self):
@@ -501,16 +511,16 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         await self.run_event("update", before=tracked(current_zones=["driveway"]), after=tracked(current_zones=["street"]), inputs={"zones": "driveway", "zone_match_type": "current"})
         self.assertEqual(self.notifications, [])
 
-    async def test_zone_entry_and_face_change_notify_without_score_increase(self):
+    async def test_zone_entry_notifies_but_face_change_alone_does_not(self):
         await self.run_event("update", before=tracked(entered_zones=[], current_zones=[]), after=tracked(), inputs={"zones": "driveway"})
         await self.run_event("update", before=tracked(), after=tracked(sub_label=["Visitor", .92]))
-        self.assertEqual(len(self.notifications), 2)
+        self.assertEqual(len(self.notifications), 1)
 
-    async def test_snapshot_updates_only_notify_for_changed_moving_subjects(self):
+    async def test_snapshot_updates_do_not_resend_notifications(self):
         await self.run_event("update", before=tracked(), after=tracked())
         await self.run_event("update", before=tracked(), after=tracked(snapshot={"frame_time": 1800000001}))
         await self.run_event("update", before=tracked(), after=tracked(snapshot={"frame_time": 1800000002}, stationary=True))
-        self.assertEqual(len(self.notifications), 1)
+        self.assertEqual(len(self.notifications), 0)
 
     async def test_native_face_tuple_is_suppressed(self):
         for kind in ("new", "update", "end"):
@@ -522,8 +532,8 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         await self.run_event("end", before=tracked(has_clip=False, top_score=.65), after=tracked(has_clip=True, top_score=.95), inputs={"require_clip": True, "min_score": .9, "provider": "test"})
         self.assertEqual(len(self.notifications), 2)
         self.assertEqual(len(self.ai_calls), 1)
-        self.assertEqual(self.notifications[0]["data"]["tag"], tracked()["id"])
-        self.assertEqual(self.notifications[1]["data"]["tag"], tracked()["id"])
+        self.assertEqual(self.notifications[0]["data"]["tag"], "automation.frigate_test::front_door")
+        self.assertEqual(self.notifications[1]["data"]["tag"], "automation.frigate_test::front_door")
 
     async def test_quality_filters_apply_to_ai(self):
         for event, options in (
@@ -611,7 +621,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.notifications[0]["data"]["actions"][1]["uri"], "/?more-info-entity-id=camera.front_door_2")
 
     async def test_ios_url_and_explicit_base(self):
-        await self.run_event(inputs={"ios_live_view": True, "base_url": "https://ha.example/", "frigate_url": "https://frigate.example"})
+        await self.run_event(inputs={"ios_live_view": True, "clip_padding_seconds": 0, "base_url": "https://ha.example/", "frigate_url": "https://frigate.example"})
         data = self.notifications[0]["data"]
         self.assertTrue(data["url"].startswith("https://ha.example/api/frigate/"))
         self.assertTrue(data["url"].endswith("master.m3u8"))
@@ -640,8 +650,235 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         ios, android = [item["data"] for item in self.notifications]
         self.assertEqual(len(ios["actions"]), 5)
         self.assertEqual(len(android["actions"]), 3)
-        self.assertTrue(ios["url"].endswith("master.m3u8"))
-        self.assertTrue(android["url"].endswith("clip.mp4"))
+        self.assertTrue(ios["url"].endswith("clip.mp4?padding=10"))
+        self.assertTrue(android["url"].endswith("clip.mp4?padding=10"))
+
+
+    async def test_clip_context_uses_mp4_on_both_platforms_and_restores_hls_at_zero(self):
+        self.fail_other_phone = False
+        for padding in (0, 25):
+            await self.run_event(inputs={"notify_device": ["phone", "other_phone"], "ios_live_view": True,
+                                         "base_url": "https://ha.example/", "clip_padding_seconds": padding})
+            ios, android = [n["data"] for n in self.notifications[-2:]]
+            expected = f"https://ha.example/api/frigate/notifications/1800000000.123456-front/front_door/clip.mp4?padding={padding}"
+            apple_expected = expected if padding else "https://ha.example/api/frigate/notifications/1800000000.123456-front/front_door/master.m3u8"
+            self.assertEqual(ios["url"], apple_expected)
+            self.assertEqual(ios["clickAction"], apple_expected)
+            self.assertTrue(any(a.get("uri") == apple_expected for a in ios["actions"]))
+            self.assertEqual(android["url"], expected)
+            self.assertEqual(android["clickAction"], expected)
+            self.assertTrue(any(a.get("uri") == expected for a in android["actions"]))
+
+    async def test_clip_context_preserves_quiet_replacements_and_no_media_fallback(self):
+        inputs = self.activity_inputs(notify_device=["other_phone"], clip_padding_seconds=15)
+        self.fail_other_phone = False
+        await self.run_event(after=tracked(has_clip=False, has_snapshot=False), inputs=inputs)
+        initial = self.notifications[-1]["data"]
+        self.assertEqual(initial["url"], "/?more-info-entity-id=camera.front_door")
+        await self.run_event("end", after=tracked(), inputs=inputs)
+        final = self.notifications[-1]["data"]
+        self.assertTrue(final["url"].endswith("clip.mp4?padding=15"))
+        self.assertEqual(initial["tag"], final["tag"])
+        self.assertTrue(final["alert_once"])
+        self.assertEqual(len(self.fresh_alerts()), 1)
+
+    def activity_inputs(self, **changes):
+        return {
+            "activity_timers": {"camera.front_door": "timer.front_activity", "camera.back_yard": "timer.back_activity"},
+            "camera": ["camera.front_door", "camera.back_yard"],
+            **changes,
+        }
+
+    def fresh_alerts(self):
+        return [n for n in self.notifications if not n["data"]["alert_once"]]
+
+    async def test_activity_picker_rows_keep_independent_rolling_windows(self):
+        inputs = {"camera": ["camera.front_door", "camera.back_yard"], "activity_timer_rows": [
+            {"camera": "camera.front_door", "timer": "timer.front_activity"},
+            {"camera": "camera.back_yard", "timer": "timer.back_activity"},
+        ]}
+        await self.run_event(inputs=inputs)
+        self.clock += timedelta(seconds=119)
+        await self.run_event("update", before=tracked(), after=tracked(), inputs=inputs)
+        await self.run_event(after=tracked(camera="back_yard", id="back-track"), inputs=inputs)
+        await self.run_event(after=tracked(id="split-track"), inputs=inputs)
+        self.assertEqual(len(self.fresh_alerts()), 2)
+        self.assertEqual(len(self.notifications), 3)
+        self.assertTrue(self.notifications[-1]["data"]["alert_once"])
+        for timer in ("timer.front_activity", "timer.back_activity"):
+            self.assertEqual(self.hass.states.get(timer).state, "active")
+
+    async def test_activity_picker_rows_override_legacy_camera_mapping(self):
+        for key, previous in (("camera.front_door", "timer.missing"), ("front_door", "timer.front_activity")):
+            inputs = self.activity_inputs(activity_timers={key: previous},
+                                          activity_timer_rows=[{"camera": "camera.front_door", "timer": "timer.front_activity"}])
+            await self.run_event(inputs=inputs)
+            self.assertEqual(len(self.fresh_alerts()), 1)
+            self.assertEqual(self.hass.states.get("timer.front_activity").state, "active")
+
+    async def test_activity_picker_rows_reject_duplicates_and_shared_timers(self):
+        for rows in ([{"camera": "camera.front_door", "timer": "timer.front_activity"},
+                      {"camera": "camera.front_door", "timer": "timer.back_activity"}],
+                     [{"camera": "camera.front_door", "timer": "timer.front_activity"},
+                      {"camera": "camera.back_yard", "timer": "timer.front_activity"}],
+                     [{"camera": "camera.front_door", "timer": "input_boolean.busy"}]):
+            await self.run_event(inputs={"activity_timer_rows": rows})
+            self.assertEqual(self.notifications, [])
+            self.assertIn("one row per camera", self.logs[-1]["message"])
+
+    async def test_activity_picker_uses_real_ha_nested_entity_validation(self):
+        config = BLUEPRINT["blueprint"]["input"]["activity_and_silence"]["input"]["activity_timer_rows"]["selector"]["object"]
+        picker = ObjectSelector(config)
+        row = {"camera": "camera.front_door", "timer": "timer.front_activity"}
+        self.assertEqual(picker([row]), [row])
+        for invalid in ({"camera": "camera.front_door"}, row | {"timer": "not_an_entity_id"}):
+            with self.assertRaises(Exception):
+                picker([invalid])
+
+    async def test_activity_groups_changed_ids_faces_and_snapshots_until_quiet(self):
+        inputs = self.activity_inputs()
+        first = tracked(has_clip=False)
+        await self.run_event(after=first, inputs=inputs)
+        for i in range(5):
+            self.clock += timedelta(seconds=2)
+            after = tracked(id=f"split-{i}", sub_label=[f"Unreliable-{i}", .9],
+                            snapshot={"frame_time": 1800000001 + i}, has_clip=False)
+            await self.run_event("update", before=first, after=after, inputs=inputs)
+            first = after
+        await self.run_event("update", before=first, after=first | {"has_clip": True}, inputs=inputs)
+        await self.run_event("end", before=first | {"has_clip": True}, after=first | {"has_clip": True}, inputs=inputs)
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertEqual(len(self.notifications), 3)  # initial, clip and END replacement
+        self.assertEqual({n["data"]["tag"] for n in self.notifications}, {"automation.frigate_test::front_door"})
+        self.assertTrue(all(n["data"]["push"]["interruption-level"] == "passive" for n in self.notifications[1:]))
+
+    async def test_activity_renews_on_every_eligible_tick_not_a_fixed_cooldown(self):
+        inputs = self.activity_inputs()
+        await self.run_event(inputs=inputs)
+        for _ in range(3):
+            self.clock += timedelta(seconds=119)
+            await self.run_event("update", before=tracked(), after=tracked(), inputs=inputs)
+            finish = datetime.fromisoformat(self.hass.states.get("timer.front_activity").attributes["finishes_at"])
+            self.assertAlmostEqual((finish - self.clock).total_seconds(), 120, delta=1)
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertEqual(len(self.notifications), 1)
+
+    async def test_activity_alerts_again_after_timer_expires(self):
+        inputs = self.activity_inputs()
+        await self.run_event(inputs=inputs)
+        self.clock += timedelta(seconds=121)
+        await self.hass.services.async_call("timer", "finish", {"entity_id": "timer.front_activity"}, blocking=True)
+        await self.run_event("update", before=tracked(), after=tracked(id="new-track"), inputs=inputs)
+        self.assertEqual(len(self.fresh_alerts()), 2)
+        self.assertEqual(self.notifications[0]["data"]["tag"], self.notifications[1]["data"]["tag"])
+
+    async def test_activity_cameras_have_independent_windows(self):
+        inputs = self.activity_inputs()
+        await asyncio.gather(
+            self.run_event(after=tracked(), inputs=inputs),
+            self.run_event(after=tracked(camera="back_yard", id="other-track"), inputs=inputs),
+        )
+        self.assertEqual(len(self.fresh_alerts()), 2)
+        self.assertEqual(self.hass.states.get("timer.front_activity").state, "active")
+        self.assertEqual(self.hass.states.get("timer.back_activity").state, "active")
+        self.assertEqual(len({n["data"]["tag"] for n in self.notifications}), 2)
+
+    async def test_activity_simultaneous_starts_have_one_alert_owner(self):
+        inputs = self.activity_inputs()
+        await asyncio.gather(*(self.run_event(after=tracked(id=f"overlap-{i}"), inputs=inputs) for i in range(5)))
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertEqual(len({n["data"]["tag"] for n in self.notifications}), 1)
+
+    async def test_activity_invalid_timer_stops_with_configuration_message(self):
+        await self.run_event(inputs=self.activity_inputs(activity_timers={"camera.front_door": "timer.missing"}))
+        self.assertEqual(self.notifications, [])
+        self.assertIn("missing, unavailable, or shared", self.logs[-1]["message"])
+
+    async def test_activity_rejected_event_does_not_extend_window(self):
+        await self.run_event(after=tracked(top_score=.2), inputs=self.activity_inputs())
+        self.assertEqual(self.hass.states.get("timer.front_activity").state, "idle")
+        self.assertEqual(self.notifications, [])
+
+    async def test_activity_superseded_ai_is_not_analyzed(self):
+        changed = False
+        async def newer_activity():
+            nonlocal changed
+            if not changed and self.clock.timestamp() > 1800000020:
+                changed = True
+                await self.run_event("update", before=tracked(), after=tracked(id="next-track"), inputs=self.activity_inputs())
+        self.delay_hook = newer_activity
+        await self.run_event("end", inputs=self.activity_inputs(provider="test"))
+        self.assertTrue(changed)
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_activity_ai_updates_the_camera_card_quietly(self):
+        await self.run_event("end", inputs=self.activity_inputs(provider="test"))
+        self.assertEqual(len(self.ai_calls), 1)
+        self.assertEqual(len(self.notifications), 2)
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertEqual(self.notifications[0]["data"]["tag"], self.notifications[1]["data"]["tag"])
+        self.assertEqual(self.notifications[-1]["data"]["push"]["interruption-level"], "passive")
+
+    async def test_activity_shared_timer_is_rejected_instead_of_coupling_cameras(self):
+        await self.run_event(inputs=self.activity_inputs(activity_timers={"camera.front_door": "timer.front_activity", "camera.back_yard": "timer.front_activity"}))
+        self.assertEqual(self.notifications, [])
+        self.assertIn("shared by cameras", self.logs[-1]["message"])
+
+    async def test_activity_same_camera_race_uses_real_delay_scheduling(self):
+        inputs = self.activity_inputs()
+        config = materialize(defaults() | inputs | {"notify_device": [self.devices["phone"]]})
+        script = Script(self.hass, cv.SCRIPT_SCHEMA(config["actions"]), "Activity claim race", "automation", script_mode="parallel")
+        async def start(i):
+            await script.async_run({"trigger": {"id": "frigate-event", "payload_json": {"type": "new", "before": {}, "after": tracked(id=f"race-{i}")}}, "this": self.hass.states.get("automation.frigate_test")}, context=Context())
+        await asyncio.gather(*(start(i) for i in range(8)))
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertEqual({n["data"]["tag"] for n in self.notifications}, {"automation.frigate_test::front_door"})
+
+    async def test_activity_ai_result_cannot_overwrite_newer_camera_activity(self):
+        async def new_activity_during_analysis():
+            self.clock += timedelta(seconds=1)
+            await self.run_event("update", before=tracked(), after=tracked(id="newer-track"), inputs=self.activity_inputs())
+        self.ai_hook = new_activity_during_analysis
+        await self.run_event("end", inputs=self.activity_inputs(provider="test"))
+        self.assertEqual(len(self.ai_calls), 1)
+        self.assertEqual(len(self.notifications), 1)
+
+    async def test_name_change_is_metadata_not_a_new_alert_or_identity_claim(self):
+        await self.run_event(after=tracked(sub_label=["Unreliable Label", .99]))
+        self.assertEqual(self.notifications[-1]["title"], "Person detected")
+        self.assertIn("Frigate label: Unreliable Label", self.notifications[-1]["message"])
+
+    async def test_activity_start_survives_update_near_wall_clock_second_boundary(self):
+        self.clock += timedelta(milliseconds=900)
+        ran_update = False
+        async def update_while_claim_settles():
+            nonlocal ran_update
+            if not ran_update:
+                ran_update = True
+                await self.run_event("update", before=tracked(), after=tracked(), inputs=self.activity_inputs())
+        self.delay_hook = update_while_claim_settles
+        await self.run_event(inputs=self.activity_inputs())
+        self.assertTrue(ran_update)
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertEqual(len(self.notifications), 1)
+
+    async def test_activity_new_track_updates_clip_as_soon_as_it_enters_zone(self):
+        inputs = self.activity_inputs(zones="driveway")
+        await self.run_event(after=tracked(id="previous-track"), inputs=inputs)
+        self.clock += timedelta(seconds=60)
+        before = tracked(id="current-track", entered_zones=[], current_zones=[], has_clip=True)
+        after = tracked(id="current-track", has_clip=True)
+        await self.run_event("update", before=before, after=after, inputs=inputs)
+        self.assertEqual(len(self.notifications), 2)
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        update = self.notifications[-1]["data"]
+        self.assertIn("/current-track/", update["url"])
+        self.assertEqual(update["tag"], self.notifications[0]["data"]["tag"])
+        self.assertTrue(update["alert_once"])
+        self.assertEqual(update["push"]["interruption-level"], "passive")
+        # No END was required, and more snapshots still cannot resend this card.
+        await self.run_event("update", before=after, after=after | {"snapshot": {"frame_time": 1800000062}}, inputs=inputs)
+        self.assertEqual(len(self.notifications), 2)
 
     async def test_irrelevant_camera_and_event_types_are_ignored(self):
         await self.run_event(after=tracked(camera="other_camera"))

@@ -54,7 +54,7 @@ For AI analysis, HA's URL selection must produce an address reachable from HA it
 
 View Live buttons and taps without retained media use the shared relative More Info URL documented by the [Companion apps](https://companion.home-assistant.io/docs/notifications/notifications-basic/#opening-a-url). Verify that it opens the mapped camera entity on each receiving phone.
 
-The automated checks verify event handling and source compatibility. Playback on a real phone, broker delivery, recording availability, and a real provider response still require an installation test. No live Frigate instance was used for this change.
+The automated checks verify event handling and source compatibility. Playback on a real phone, broker delivery, recording availability, and a real provider response still require an installation test. The original v1.0 checks used no live Frigate instance; v1.1.0 server checks are described below.
 
 ## Operational limits
 
@@ -64,6 +64,21 @@ Without a silence table, global mute turns the automation off and relies on a ru
 
 The automation allows 25 concurrent runs. Completed events waiting for AI occupy run slots. A busy installation can reach that limit and drop triggers; check HA's maximum-run warnings when sizing the automation. Global cooldown also uses a shared helper and is a best-effort throttle under simultaneous events.
 
-Android replacements use `alert_once`. iOS replacements retain active notification delivery and may sound or show banners again according to device settings. An update can be an event's first eligible notification, so the blueprint does not silence every update automatically.
+With activity timers configured, replacements use Android `alert_once` and passive Apple delivery; a new window alerts again. Without activity timers, Apple event updates retain active delivery and may sound or show banners again according to device settings. An update can be an event's first eligible notification.
 
 Verification for v1.0.0: all 51 regression scenarios passed on Home Assistant 2026.3.0 and 2026.10.2 (Python 3.14). The upstream contract checks passed for Frigate 0.18.0 and 0.18.2. Runtime behavior is unchanged from RC2. Live phone playback and provider verification remain outstanding.
+
+
+## v1.1.0 activity grouping and helper setup
+
+Version 1.1.0 adds a separate restored timer per camera. Its two-minute default window restarts on each eligible MQTT message, without comparing tracking IDs or recognized names. Snapshot-only changes do not resend notifications. Initial, clip, END and AI updates share an automation-and-camera tag; updates within an active window use Android alert-once and passive Apple delivery.
+
+The 72 regression scenarios pass on HA 2026.3.0 and 2026.10.2. They include simultaneous starts using HA's real delay scheduling, clock-second boundaries, split tracks, independent camera windows, timer configuration errors and stale AI results. Frigate 0.18.0/0.18.2 and LLMVision source contract checks still pass.
+
+A timer measures received eligible messages, not continuous physical presence. A persistent false detection can extend a window; missing messages can let it expire. The first alert includes a 100 ms claim-settling delay. Timer helpers must be unique to their camera and automation. Reusing a helper across separate automations can couple their windows and is not detected by the blueprint's within-map validation. Phone delivery remains subject to the Companion app and device settings.
+
+Activity grouping does not use Frigate review IDs. Those can aggregate several tracked objects, but their boundaries do not guarantee the configured quiet interval. Object IDs remain necessary to fetch individual clips. The optional AI step summarizes the latest eligible clip, not an entire camera activity window.
+
+MP4 phone links request configurable event padding (10 seconds by default). Source checks execute Frigate's endpoint range calculation and the integration's query forwarding. A live Frigate 0.17.2 check measured three complete files at about 2, 5 and 10 seconds without padding, and 22, 25 and 30 seconds with 10-second padding. Recordings covered the lead-in. This verifies server-side media coverage; playback on the receiving phone remains unverified. Apple now uses the padded MP4 link too. A live HLS check returned 10.211 seconds with both padding=0 and padding=10, although the API returned a longer range. Set context to zero to keep event HLS playback when iOS Notification is enabled. AI event-ID analysis keeps its existing boundaries, and the camera activity window is not merged into a single video.
+
+The helper form uses repeated object fields with camera and timer entity selectors, supported by both tested HA versions. Existing helper input IDs and legacy timer maps remain accepted. New rows override a legacy mapping for the same camera; duplicate cameras and timers shared between cameras are rejected. Regression coverage includes real nested selector validation and independent rolling windows from form rows. Helpers still require creation through HA's normal picker; the blueprint does not provision them on import.

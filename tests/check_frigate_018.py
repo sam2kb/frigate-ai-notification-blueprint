@@ -139,6 +139,27 @@ def main():
     assert any(re.fullmatch(r"/events/\{[^}]+\}/thumbnail\.(?:jpg|\{[^}]+\})", path) for path in routes)
     print("PASS: Frigate 0.18 snapshot, thumbnail, MP4, and event VOD API routes")
 
+    # Execute the pinned endpoint: padding must extend the recorded range,
+    # while an unfinished event must still stop at the current time.
+    clip_endpoint = next(n for n in ast.walk(media) if isinstance(n, ast.AsyncFunctionDef) and n.name == "event_clip")
+    clip_endpoint.decorator_list = []
+    module = ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), clip_endpoint], type_ignores=[])
+    event = SimpleNamespace(camera="front_door", has_clip=True, start_time=1000, end_time=1005)
+    async def recording_clip(request, camera, start, end):
+        return camera, start, end
+    async def camera_access(*args, **kwargs):
+        pass
+    namespace = {"Query": lambda default, **kwargs: default,
+                 "Event": SimpleNamespace(id="event-id", get=lambda *args: event),
+                 "DoesNotExist": LookupError, "recording_clip": recording_clip,
+                 "require_camera_access": camera_access,
+                 "datetime": SimpleNamespace(now=lambda: SimpleNamespace(timestamp=lambda: 1010))}
+    exec(compile(ast.fix_missing_locations(module), "upstream_padded_event_clip", "exec"), namespace)
+    assert asyncio.run(namespace["event_clip"](None, "event-id", padding=10)) == ("front_door", 990, 1015)
+    event.end_time = None
+    assert asyncio.run(namespace["event_clip"](None, "event-id", padding=10)) == ("front_door", 990, 1010)
+    print("PASS: actual Frigate MP4 endpoint adds context and preserves ongoing-event timing")
+
     tracked = ast.parse(sources["frigate_tracked.py"])
     to_dict = next(node for node in ast.walk(tracked) if isinstance(node, ast.FunctionDef) and node.name == "to_dict")
     fields = {key.value for node in ast.walk(to_dict) if isinstance(node, ast.Dict) for key in node.keys if isinstance(key, ast.Constant)}
@@ -167,6 +188,13 @@ def main():
         result = mapper(fake, {}, event_id="event-id", path=path, headers={})
         assert result.url == expected, (path, result.url)
     print("PASS: actual HA Frigate proxy maps blueprint JPEG, MP4, HLS manifest and segment URLs")
+    query_method = next(n for n in ast.walk(views) if isinstance(n, ast.FunctionDef) and n.name == "_get_query_params")
+    module = ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), query_method], type_ignores=[])
+    exec(compile(ast.fix_missing_locations(module), "upstream_proxy_query", "exec"), namespace)
+    fake._get_query_params = lambda request: namespace["_get_query_params"](fake, request)
+    result = mapper(fake, SimpleNamespace(query={"padding": "10", "authSig": "test-signature"}), event_id="event-id", path="front_door/clip.mp4", headers={})
+    assert result.url == "api/events/event-id/clip.mp4" and result.query_params == {"padding": "10"}
+    print("PASS: actual HA proxy forwards MP4 padding and strips its local signature")
 
     fields = yaml.safe_load(sources["llmvision_services.yaml"])["video_analyzer"]["fields"]
     calls = [node for node in mapping_nodes(blueprint["action"]) if node.get("service", node.get("action")) == "llmvision.video_analyzer"]
