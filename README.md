@@ -2,15 +2,23 @@
 ---
 <sup>Rewritten and improved version of the original by [@zacharyd3](https://github.com/zacharyd3/Frigate-Vision).</sup>
 
-**Frigate AI Notification** sends multi-camera alerts from **Frigate**, with optional **LLMVision** summaries. Detection, zone and face filters help you control which events produce notifications.
+**Frigate AI Notification** sends multi-camera alerts from **Frigate**, with optional descriptions from **Frigate GenAI** or **LLMVision**. Detection, zone and face filters help you control which events produce notifications.
 
 ---
 
 ## Import the Blueprint
 
-Version `1.1.0` is available on `main` and requires Home Assistant 2026.3+. It adds per-camera activity windows, helper pickers and clip context. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) for verification and installation checks.
+Version `1.2.0` is available on `main` and requires Home Assistant 2026.3+. It adds native Frigate AI descriptions and an Auto source that prefers Frigate text before requesting LLMVision analysis. See the [compatibility notes and known limits](docs/frigate-0.18-compatibility.md) for verification and installation checks.
 
 [![Open your Home Assistant instance and import the blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsam2kb%2Ffrigate-ai-notification-blueprint%2Fblob%2Fmain%2Ffrigate-ai-notification.yaml)
+
+---
+
+## Upgrading from 1.1.0
+
+Camera timers now use **Camera activity timers** picker rows only. If your automation still uses the old `activity_timers` YAML map, enter its camera/timer pairs as rows in the 1.1.0 editor before importing 1.2.0. Reuse the existing helpers. Automations already using rows need no timer changes.
+
+The description source stays at LLMVision for saved automations. Select **Auto (prefer Frigate)** or **Frigate (native)** to use native text. Enable the desired GenAI feature in Frigate first; importing the blueprint does not enable it.
 
 ---
 
@@ -18,7 +26,7 @@ Version `1.1.0` is available on `main` and requires Home Assistant 2026.3+. It a
 
 **Zone matching changed in v1.** Include and exclude patterns now match the full zone ID. Previously, `porch` could match `front_porch`; use `*porch*` to keep that substring behavior, or enter `front_porch` for an exact match. Review both lists before importing, especially privacy exclusions. Exclusions now take precedence reliably, and `all` requires every include pattern to match.
 
-Home Assistant 2026.3+ is the supported minimum. Existing input IDs are preserved. The Temperature input is deprecated and ignored; configure temperature in your LLMVision provider instead.
+Home Assistant 2026.3+ is the supported minimum. The Temperature input is deprecated and ignored; configure temperature in your LLMVision provider instead.
 
 ---
 
@@ -43,7 +51,7 @@ Home Assistant 2026.3+ is the supported minimum. Existing input IDs are preserve
   - Minimum detection score
   - Require event recording (optional)
   - Ignore likely false positives (optional)
-- **LLMVision summaries (optional)**: short, readable descriptions of what happened.
+- **AI descriptions (optional)**: use Frigate object descriptions or review narratives, choose LLMVision, or let Auto prefer native text with an optional LLMVision fallback.
 - **Notification URLs**: relative links use the sending HA server in the Companion app. You can supply an explicit HA base URL and a separate Frigate UI URL.
 - **Friendly titles & camera names**: quick options to expand “Cam → Camera” or append “Camera”.
 - **Debug mode**: logs rejected events, filter decisions and observed zones while you fine-tune.
@@ -59,7 +67,7 @@ Home Assistant 2026.3+ is the supported minimum. Existing input IDs are preserve
 Frigate 0.18 event fields and notification media routes are covered by the [compatibility checks](docs/frigate-0.18-compatibility.md). Enable Frigate recording retention if you want event clips and LLMVision video analysis.
 
 **Optional:**
-- **LLMVision** provider (leave blank to disable AI entirely)
+- **Frigate GenAI** enabled for native descriptions, or a **LLMVision** provider for separate analysis. Set Description source to Off to disable both.
 - **Input helpers** select or create in the grouped helper sections:
   - `input_datetime` for a **global cooldown** (optional; enable only if you want to skip alerts during the cooldown)
   - `input_text` for the **per-camera silence table** (optional, recommended)
@@ -77,7 +85,7 @@ Frigate 0.18 event fields and notification media routes are covered by the [comp
 4. (Optional) Turn on **Require Zone Data** if you want to wait for zones to populate.
 5. (Optional) Turn on **iOS Notification** for extra Apple actions and HLS playback when Clip context is zero. With context enabled, both platforms use MP4. Android recipients keep three action buttons.
 6. (Optional) Add **zones** to include/exclude and set match type/logic.
-7. (Optional) Enable **LLMVision** by selecting a provider. Leave Model blank to use that provider's configured default.
+7. (Optional) Set **Description source** to Auto or Frigate to use native text. For separate analysis, choose LLMVision and select a provider; in Auto, that provider is a fallback. Leave Model blank to use the provider default.
 8. (Optional) Add **AI description preview** under Optional helpers: select or create a Text helper with maximum length 255 for a short dashboard preview. Use the LLMVision timeline for longer history.
 9. (Optional) Add a **Global cooldown** helper and duration if you want to throttle alerts across all cameras. Events during that interval can be skipped.
 10. (Recommended) Add **Per-camera silence helper** under Camera activity and silence: select or create a Text helper with maximum length 255. An empty value is ready to use.
@@ -98,9 +106,9 @@ The form keeps **Camera activity and silence** together, followed by a collapsed
 | AI busy flag | Optional when coordinating AI analysis | Select or create a Toggle. Leave blank when AI is off. |
 | AI description preview | Optional short AI dashboard history | Select or create a Text helper, maximum length 255. |
 
-For independent camera alerts, leave Global cooldown at zero. Changing its duration does not change the per-camera quiet period. The AI helpers can stay blank when no provider is selected.
+For independent camera alerts, leave Global cooldown at zero. Changing its duration does not change the per-camera quiet period. The busy helper is only used by LLMVision. Native descriptions need no extra helpers; the text preview remains optional.
 
-Existing `activity_timers` mappings remain supported under **Previous timer setup**. New rows take precedence for the same camera. To move an existing setup into the form, add its camera/timer pairs as rows, then clear the previous mapping. Reuse the existing helpers.
+Configure camera timers in **Camera activity timers**, using one camera/timer row per camera. Select existing helpers or create them through the picker.
 
 ---
 
@@ -129,7 +137,7 @@ With activity timers enabled, a newly eligible detection updates the camera card
 
 Cameras without an activity timer keep direct event notifications, with the same stable camera tag and fewer update sends. Android uses alert-once for those replacements; Apple event updates can still alert. Configure activity timers for the quiet-window behavior. Existing zone, quality and optional known-face filters still determine eligibility. Known-face suppression trusts Frigate's label and can hide a real alert if recognition is wrong; leave it empty when recognition is unreliable. Recognition labels are displayed as Frigate metadata, not a confirmed identity.
 
-Optional AI analysis still uses object IDs to fetch clips. With activity timers enabled, later camera activity supersedes pending analysis and prevents an older result from replacing newer activity. This limits the summary to the latest clip; it does not combine the whole walk or all tracked objects into one video. A result that arrives after its activity timer expires is also skipped.
+LLMVision analysis uses object IDs to fetch clips. Native review narratives match those IDs against the review's detections; the review ID never replaces an object ID in a clip URL. With activity timers enabled, later camera activity supersedes pending analysis and prevents an older result from replacing newer activity. LLMVision summarizes the latest clip, while a native review narrative can cover the review's other objects. Neither path combines the whole camera activity window into one video. A result that arrives after its activity timer expires is also skipped.
 
 The blueprint handles MQTT `new`, `update` and `end` messages directly. Grouping uses camera activity and timing, not face names or tracked-object identity. Activity grouping is available from v1.1.0. Configure a timer for each camera to enable its quiet window.
 
@@ -183,6 +191,31 @@ Frigate can split one walk into short object tracks. The camera card opens the l
 
 ---
 
+## AI description source
+
+| Source | Behavior |
+| --- | --- |
+| Auto (prefer Frigate) | Wait for native object text or a review narrative. Use LLMVision only if no text arrives before the timeout and a provider is selected. |
+| Frigate (native) | Use existing Frigate text only. Keep the basic card on timeout. No LLMVision installation is needed. |
+| LLMVision | Request separate clip analysis from the selected provider. This remains the default so saved automations keep their previous behavior. |
+| Off | Keep basic notifications, even if a provider is saved. |
+
+For Auto and Frigate, leave **Frigate text type** at Auto to accept the first matching object description or review narrative. Choose a specific type if you prefer one. Review narratives use Frigate's scene text and, when Generate Event Title is enabled, its title. A valid native result skips LLMVision completely; it does not disable that integration or change Frigate's settings.
+
+Basic notifications arrive immediately. After an eligible object ends, the blueprint waits up to **Frigate description wait** (90 seconds by default), then quietly updates the same camera card. If Auto falls back, time already spent waiting counts toward LLMVision's 30-second clip-readiness delay. Later camera activity, expired activity timers, manual silence and a competing global cooldown can suppress the pending work or result.
+
+### Native requirements and limits
+
+Frigate introduced [object descriptions in 0.15](https://github.com/blakeblackshear/frigate/releases/tag/v0.15.0) and [review narratives in 0.17](https://github.com/blakeblackshear/frigate/releases/tag/v0.17.0). The version alone does not mean text is available. Configure a working GenAI provider with a vision-capable model, enable the desired feature for each camera, and check its object/zone filters. Object descriptions and review narratives are enabled separately. Follow the [GenAI documentation](https://docs.frigate.video/configuration/genai/genai_config/) for your installed version; provider configuration syntax differs between releases. Object detection, face recognition and semantic search alone do not supply narrative text.
+
+The blueprint detects availability from valid text for the current object, rather than assuming all cameras support it. Native text arrives through `<prefix>/tracked_object_update` and `<prefix>/reviews`; both follow the prefix in **Frigate MQTT event topic**. **Frigate description topic override** accepts an exact custom topic when needed. Use Frigate's normal MQTT connection; there are no extra credentials or helper entities to configure.
+
+Keep object generation at object end enabled (`objects.genai.send_triggers.tracked_object_end` in current Frigate). The listener starts after the basic END card is sent: descriptions generated only earlier, results arriving after the timeout, and results missed during an automation reload are not replayed. This path does not fetch stored descriptions from the API. Review narratives can cover several objects; their detected object IDs and camera must match the pending notification. Source contracts verify the 0.18.0 and 0.18.2 publishers; feature introduction versions are not a claim that every older release has been regression-tested.
+
+Native text updates neither restart activity timers nor create fresh alerts. They update the optional preview helper, while LLMVision timeline and busy-helper options apply only to LLMVision calls. Waits occupy automation run slots; see the [compatibility limits](docs/frigate-0.18-compatibility.md).
+
+---
+
 ## 🧠 LLMVision (Optional)
 
 Enable the provider/model to get a **short, readable summary** of what happened.
@@ -192,9 +225,9 @@ You can tweak:
 - Maximum output tokens
 - Whether to save analyzed frames in LLMVision
 
-Leave the **Provider** blank to turn AI off.
+Leave **Provider** blank to disable LLMVision calls. To disable native descriptions too, set **Description source** to Off.
 
-Analysis starts 30 seconds after END and retries failed requests using Retry Attempts and Retry Timing. Manual silence, cooldown and provider readiness are checked again after waiting. Generated titles use LLMVision's `title` field, with `response_title` accepted for older integrations. Missing or empty response text never produces an AI card.
+In LLMVision mode, analysis starts 30 seconds after END and retries failed requests using Retry Attempts and Retry Timing. Manual silence, cooldown and provider readiness are checked again after waiting. Generated titles use LLMVision's `title` field, with `response_title` accepted for older integrations. Missing or empty response text never produces an AI card.
 
 The busy helper is released after each analyzer call, including reported service failures. It is a shared flag, so simultaneous events can still race. A restart or automation reload can interrupt cleanup; if the flag remains on after analysis has stopped, turn it off before retrying.
 
@@ -214,7 +247,7 @@ A person leaves a parcel at the door.
 ---
 ```
 
-For longer history, use the LLMVision timeline. To display the helper preview, add a Markdown card:
+For longer native history, use Frigate. LLMVision calls also use its timeline. To display the helper preview, add a Markdown card:
 
 ```yaml
 type: markdown

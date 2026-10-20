@@ -1,19 +1,19 @@
 # Copilot instructions for this repository
 
-This repo contains a single Home Assistant automation blueprint that sends push notifications for Frigate events, optionally augmented by LLMVision summaries. The test suite executes its actions with Home Assistant's actual script engine, helpers, provider entries and device registry. External deliveries and provider responses are simulated.
+This repo contains a single Home Assistant automation blueprint that sends push notifications for Frigate events, optionally augmented by native Frigate descriptions or LLMVision summaries. The test suite executes its actions with Home Assistant's actual script engine, helpers, provider entries and device registry. External deliveries and provider responses are simulated.
 
 ## Big picture
 - Core file: `frigate-ai-notification.yaml` (Home Assistant blueprint, domain: automation).
 - Data flow:
   - Handle each `new`, `update`, and `end` MQTT message independently on the configurable topic (default `frigate/events`). There is no waiting event listener loop.
   - Updates notify when filters first pass or the recording flag becomes available. Snapshot-only and face-name-only changes do not resend.
-  - END checks its own final `after` data, then optionally analyzes the event clip after 30 seconds.
+  - END checks its own final `after` data, then optionally waits for native text or analyzes the event clip with LLMVision.
 - Concurrency: `mode: parallel`, `max: 25` to handle multiple cameras/events.
 
 ## Important conventions and patterns
 - Preserve the native Frigate camera ID in API URLs. Normalize lowercase/hyphens for matching, tags, and silence keys. Keep the selected HA camera entity ID for live links, including overrides.
 - Notification deduping: all phases use the same automation-and-camera tag. Optional restored timers group split object tracks into one fresh alert per camera until the rolling quiet period expires. Replacements within that window use Android alert-once and passive Apple delivery; new windows alert again.
-- Helper setup: prefer `activity_timer_rows` (native camera/timer picker rows). Preserve the legacy `activity_timers` map and saved helper input IDs. Rows override matching entity IDs and Frigate camera slugs. Each camera and automation needs its own restored timer. Group activity/silence controls separately from optional AI helpers and global cooldown.
+- Helper setup: use `activity_timer_rows` (native camera/timer picker rows). The legacy timer-map input was removed in 1.2.0. Map timers by camera entity ID; Camera Name Override Map still resolves Frigate names. Each camera and automation needs its own restored timer. Group activity/silence controls separately from optional AI helpers and global cooldown.
 - Mobile devices: notification service names use `notify.mobile_app_<slugified device name>`. Skip missing devices and unloaded mobile app entries. Runtime delivery errors must not block other recipients.
 - iOS support: Apple and Android use padded MP4 when clip_padding_seconds > 0 (default 10). With zero context and ios_live_view enabled, Apple uses event HLS and extra actions. Live HLS padding was ineffective through the tested Frigate gateway; do not assume that adding a query expands HLS coverage. Android keeps at most three actions. View Live opens the HA camera entity.
 - URLs: default to Companion app relative HA notification-proxy paths. Explicit `base_url` takes precedence over `local_url`. Live buttons and no-media taps use `/?more-info-entity-id=<selected_camera_entity>` on both platforms. `frigate_url` controls only the optional Frigate UI action. Do not restore `state_attr('homeassistant', ...)` URL detection, `sign=true`, or fabricated review routes.
@@ -57,3 +57,9 @@ This repo contains a single Home Assistant automation blueprint that sends push 
 - Zones include with wildcards: `front_yard_*` with `zone_match_type: either` and `zone_logic: any` allows flexible matching; add `zones_exclude: porch_privacy` to suppress a sub-area.
 - Silence table JSON stored in `input_text` might look like: `{"back_yard": 1730000000}`; keys must use normalized camera slugs.
 - iOS event HLS path: `/api/frigate/notifications/{{ id }}/{{ camera }}/master.m3u8`.
+
+## Native descriptions
+- Preserve source modes: Auto prefers the first matching native object/review text, then optionally falls back; Frigate never calls LLMVision; Off disables both. Existing automations default to LLMVision.
+- Persistent native MQTT triggers bridge valid messages to scoped local HA events. MQTT value_template has no script variables; filter only context-free message types there. Match object ID, automation and camera inside HA event waits. Review detections contain object IDs; never use the review ID for clips.
+- Native messages must not renew timers or send fresh alerts. Preserve shared eligibility/stale guards and require valid response text before the final send. Conditional branches that end on a condition can return to their parent sequence; do not assume they stop the whole automation.
+- Native waiting counts toward LLMVision clip-readiness delay. Do not add a further fixed 30 seconds after the default 90-second wait. No helper/API cache is provided; document early-only/late/reload misses.

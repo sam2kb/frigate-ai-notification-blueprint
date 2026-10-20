@@ -32,6 +32,7 @@ SOURCES = {
     "frigate_events.py": ("blakeblackshear/frigate", FRIGATE, "frigate/api/event.py", "1597c188567714eabc40a7ceaee7ee17037fb428"),
     "frigate_objects.py": ("blakeblackshear/frigate", FRIGATE, "frigate/track/object_processing.py", "999ec5c04b6869182a17e2051af16b797bd7136e"),
     "frigate_tracked.py": ("blakeblackshear/frigate", FRIGATE, "frigate/track/tracked_object.py", "75234c3a87abfe94ce89a0eb68bb5c5df9c3d09c"),
+    "frigate_dispatcher.py": ("blakeblackshear/frigate", FRIGATE, "frigate/comms/dispatcher.py", "ec16f9744e883c3e9628f2c8aa4d4d3d556c8171"),
     "ha_frigate_views.py": ("blakeblackshear/frigate-hass-integration", INTEGRATION, "custom_components/frigate/views.py", "497bbdf19be9ede60f47c7b6905f82de7786e92f"),
     "ha_frigate_hacs.json": ("blakeblackshear/frigate-hass-integration", INTEGRATION, "hacs.json", "4132e3461c0b6a156fe819eb2afa19ebe4615d4f"),
     "llmvision_services.yaml": ("valentinfrlch/ha-llmvision", LLMVISION, "custom_components/llmvision/services.yaml", "c5ee604984a68099f56839a7ac5b34bc46a343f2"),
@@ -168,6 +169,34 @@ def main():
     objects = ast.parse(sources["frigate_objects.py"])
     check_mqtt_serialization(objects)
     print("PASS: actual Frigate MQTT new/update/end serialization, before/after shape and required object fields")
+
+    # Execute the real native-text publishers, including the review detection
+    # IDs used for correlation (review IDs must never become object clip IDs).
+    dispatcher = ast.parse(sources["frigate_dispatcher.py"])
+    names = {"handle_update_event_description", "handle_update_review_description"}
+    handlers = [node for node in ast.walk(dispatcher) if isinstance(node, ast.FunctionDef) and node.name in names]
+    assert len(handlers) == 2
+    published = []
+    event = SimpleNamespace(id="event-id", camera="front_door", data={}, save=lambda: None)
+    class Insert:
+        def on_conflict(self, **kwargs):
+            return self
+        def execute(self):
+            pass
+    namespace = {"Event": SimpleNamespace(id="event-id", get=lambda *args: event),
+                 "ReviewSegment": SimpleNamespace(id="review-id", insert=lambda *args: Insert()),
+                 "TrackedObjectUpdateTypesEnum": SimpleNamespace(description="description"),
+                 "cast": lambda kind, value: value, "json": json,
+                 "self": SimpleNamespace(publish=lambda topic, body: published.append((topic, json.loads(body))))}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=handlers, type_ignores=[])), "upstream_native_text_publishers", "exec"), namespace)
+    namespace["payload"] = {"id": "event-id", "description": "A person walks to the door."}
+    namespace["handle_update_event_description"]()
+    assert published[-1] == ("tracked_object_update", {"type": "description", "id": "event-id", "camera": "front_door", "description": "A person walks to the door."})
+    review = {"type": "genai", "after": {"id": "review-id", "camera": "front_door", "data": {"detections": ["event-id"], "metadata": {"title": "Visitor", "scene": "A person arrives."}}}}
+    namespace["payload"] = review
+    namespace["handle_update_review_description"]()
+    assert published[-1] == ("reviews", review)
+    print("PASS: actual Frigate native object descriptions and review narrative MQTT publishers")
 
     views = ast.parse(sources["ha_frigate_views.py"])
     proxy = next(node for node in views.body if isinstance(node, ast.ClassDef) and node.name == "NotificationsProxyView")

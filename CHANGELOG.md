@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented here.
 
+## [1.2.0] - 2026-10-19
+- Remove Previous timer setup and the old `activity_timers` YAML-map input. Configure camera timers with the camera/timer picker rows; saved automations using only the old map need their pairs entered as rows before upgrading.
+- Add native Frigate AI object descriptions and review narratives. Match review detections to the original object and camera, use scene/title text, and quietly replace the existing card without requiring LLMVision or new helpers.
+- Add Auto source selection: accept either native format first, then use a configured LLMVision provider only on timeout. Native results skip the separate analysis. Keep explicit Frigate, LLMVision and Off modes; saved automations retain LLMVision as their default.
+- Preserve event filters, manual silence, global cooldown and activity-window guards for native text and fallback work. Count the native wait toward clip readiness instead of adding another fixed 30 seconds. Ignore empty, malformed, unrelated and stale descriptions.
+- Document GenAI version/configuration requirements and the bounded wait: earlier-only or late descriptions are not replayed. Derive both native MQTT topics from the configured event prefix, with an optional exact topic override.
+- Pass 94 real-HA regression scenarios on HA 2026.3.0 and 2026.10.2, including native routing and automatic fallback. Execute pinned Frigate 0.18.0/0.18.2 native publishers as part of the source contract checks. Phone delivery and real GenAI provider output still need an installation check.
+
 ## [1.1.0] - 2026-10-19
 - Replace manual timer-map setup with camera/timer picker rows and inline helper creation. Group activity/silence controls separately from optional AI helpers and the global cooldown. Keep saved helper input IDs and previous mappings compatible; reject repeated camera rows.
 - Include 10 seconds of context on each side of MP4 event clips when recordings are available. Add a setting from 0 to 60 seconds; alerts stay immediate. Apple uses the same padded MP4 links; set context to zero to keep HLS when iOS Notification is enabled. AI clip boundaries are unchanged.

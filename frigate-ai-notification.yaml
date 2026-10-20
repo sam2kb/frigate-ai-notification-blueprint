@@ -2,7 +2,7 @@ blueprint:
   name: Frigate AI Notification
   author: sam2kb
   description: >
-    [1.1.0] Multi-camera notifications powered by Frigate and optional LLMVision summaries.
+    [1.2.0] Multi-camera notifications with optional Frigate AI descriptions or LLMVision summaries.
     Filter by detection quality, zones and recognized faces, with optional silence and cooldown controls.
   source_url: https://github.com/sam2kb/frigate-ai-notification-blueprint/blob/main/frigate-ai-notification.yaml
   domain: automation
@@ -239,6 +239,49 @@ blueprint:
             text:
               multiline: false
 
+    ai_descriptions:
+      name: AI descriptions
+      icon: mdi:text-box-outline
+      description: Use Frigate's existing AI text or request a separate LLMVision analysis.
+      collapsed: false
+      input:
+        ai_source:
+          name: Description source
+          description: >-
+            Auto waits for Frigate text first and uses LLMVision only if none arrives and a
+            Provider is selected. Frigate uses native text only. LLMVision always requests its
+            own analysis. Off keeps basic alerts.
+            Existing automations keep LLMVision as their default source.
+          default: llmvision
+          selector:
+            select:
+              options:
+                - { label: Auto (prefer Frigate), value: auto }
+                - { label: Frigate (native), value: frigate }
+                - { label: LLMVision, value: llmvision }
+                - { label: "Off", value: none }
+        frigate_description_type:
+          name: Frigate text type
+          description: >-
+            Auto accepts the first matching object description or review narrative. You can
+            restrict it to one type. Used with Auto and Frigate sources.
+          default: auto
+          selector:
+            select:
+              options:
+                - { label: Auto (either type), value: auto }
+                - { label: Object description, value: object }
+                - { label: Review narrative, value: review }
+        native_description_timeout:
+          name: Frigate description wait
+          description: >-
+            Seconds to wait after an eligible object ends for its native text. Basic alerts
+            stay immediate. On timeout, Auto can fall back to the selected LLMVision provider;
+            Frigate keeps the basic card. Configure object descriptions to generate at object end; earlier-only descriptions are not replayed.
+          default: 90
+          selector:
+            number: { min: 5, max: 180, step: 5, unit_of_measurement: seconds, mode: box }
+
     llmvision_tweaks:
       name: LLMVision Tweaks
       icon: mdi:brain
@@ -343,6 +386,13 @@ blueprint:
           description: Include Frigate sublabels in the prompt if available.
           default: true
           selector: { boolean: {} }
+        native_mqtt_topic:
+          name: Frigate description topic override
+          description: >-
+            Optional exact topic for native text. Leave empty to derive tracked_object_update
+            or reviews from the Frigate MQTT event topic's prefix. Normally no change is needed.
+          default: ""
+          selector: { text: {} }
         base_url:
           name: External Base URL
           description: Public URL for Home Assistant. Leave empty to let the Companion app resolve relative links to this Home Assistant server.
@@ -399,27 +449,31 @@ blueprint:
             number:
               { min: 1, max: 48, step: 1, unit_of_measurement: hours, mode: slider }
 
-    legacy_activity_setup:
-      name: Previous timer setup
-      icon: mdi:history
-      description: Existing YAML mappings remain supported. New installations can leave this section empty.
-      collapsed: true
-      input:
-        activity_timers:
-          name: Previous camera timer map
-          description: >-
-            Compatibility input for existing automations. Use Camera activity timers above for new setup.
-            Existing camera-to-timer maps still work, for example
-            {"camera.front": "timer.frigate_activity_front"}. Enable Restore on each timer.
-            One alert per camera starts an activity window; tracking IDs and recognized names
-            do not split it. Unmapped cameras keep direct event notifications.
-          default: {}
-          selector: { object: {} }
+trigger_variables:
+  native_source_selection: !input ai_source
+  native_type_selection: !input frigate_description_type
+  native_event_topic_input: !input mqtt_topic
+  native_topic_override_input: !input native_mqtt_topic
+  native_topic_prefix: "{{ (native_event_topic_input.rsplit('/', 1)[0] ~ '/') if '/' in native_event_topic_input else '' }}"
+  native_object_topic: "{{ (native_topic_override_input | trim) or (native_topic_prefix ~ 'tracked_object_update') }}"
+  native_review_topic: "{{ (native_topic_override_input | trim) or (native_topic_prefix ~ 'reviews') }}"
 
 trigger:
   - trigger: mqtt
     id: frigate-event
     topic: !input mqtt_topic
+  - trigger: mqtt
+    id: native-description-object
+    enabled: "{{ native_source_selection in ['frigate', 'auto'] and native_type_selection in ['object', 'auto'] }}"
+    topic: "{{ native_object_topic }}"
+    payload: description
+    value_template: "{{ value_json.type | default('') }}"
+  - trigger: mqtt
+    id: native-description-review
+    enabled: "{{ native_source_selection in ['frigate', 'auto'] and native_type_selection in ['review', 'auto'] }}"
+    topic: "{{ native_review_topic }}"
+    payload: genai
+    value_template: "{{ value_json.type | default('') }}"
   - trigger: event
     event_type: mobile_app_notification_action
     id: mobile-action
@@ -429,6 +483,9 @@ condition: []
 action:
   - variables:
       selected_cameras: !input camera
+      input_ai_source: !input ai_source
+      input_native_type: !input frigate_description_type
+      input_native_timeout: !input native_description_timeout
       input_camera_name_map: !input camera_name_map
       input_labels: !input labels
       input_zones: !input zones
@@ -450,7 +507,6 @@ action:
       input_frigate_url: !input frigate_url
       input_clip_padding: !input clip_padding_seconds
       input_notification_timeout: !input notification_timeout
-      input_activity_timers: !input activity_timers
       input_activity_timer_rows: !input activity_timer_rows
       activity_quiet_seconds: !input activity_quiet_seconds
       input_cooldown: !input cooldown
@@ -483,25 +539,50 @@ action:
       camera_key: "{{ camera | lower | replace('-', '_') }}"
       camera_map: {}
       silence_table: {}
+  # Bridge MQTT text to scoped HA events. Waiting event runs retain the original
+  # filters and media context; review IDs are never used as object clip IDs.
+  - if: "{{ trigger.id in ['native-description-object', 'native-description-review'] }}"
+    then:
+      - if: "{{ input_ai_source not in ['frigate', 'auto'] }}"
+        then:
+          - stop: Native descriptions disabled
+      - variables:
+          native_after: "{{ payload.get('after') if payload.get('after') is mapping else {} }}"
+          native_data: "{{ native_after.get('data') if native_after.get('data') is mapping else {} }}"
+          native_meta: "{{ native_data.get('metadata') if native_data.get('metadata') is mapping else {} }}"
+          native_text: "{{ payload.get('description') if trigger.id == 'native-description-object' else native_meta.get('scene') }}"
+          native_title: "{{ native_meta.get('title') if trigger.id == 'native-description-review' and native_meta.get('title') is string else '' }}"
+          native_camera: "{{ payload.get('camera', '') if trigger.id == 'native-description-object' else native_after.get('camera') }}"
+          native_ids_raw: "{{ [payload.get('id')] if trigger.id == 'native-description-object' else native_data.get('detections', []) }}"
+          native_ids: "{{ native_ids_raw | select('string') | reject('eq', '') | list if native_ids_raw is sequence and native_ids_raw is not string else [] }}"
+      - condition: template
+        value_template: >-
+          {{ native_text is string and native_text | trim | length > 0 and native_camera is string and
+             ((trigger.id == 'native-description-object' and payload.get('type') == 'description') or
+              (trigger.id == 'native-description-review' and payload.get('type') == 'genai' and native_camera | length > 0)) }}
+      - repeat:
+          for_each: "{{ native_ids }}"
+          sequence:
+            - event: frigate_ai_notification_description
+              event_data:
+                automation_entity: "{{ this.entity_id }}"
+                event_id: "{{ repeat.item }}"
+                camera: "{{ native_camera }}"
+                description: "{{ native_text | trim }}"
+                title: "{{ native_title | trim }}"
+      - stop: Native Frigate text forwarded to matching event runs
+
   - variables:
       camera_map: "{{ input_camera_name_map | from_json({}) }}"
       activity_rows: "{{ input_activity_timer_rows if input_activity_timer_rows is sequence and input_activity_timer_rows is not string and input_activity_timer_rows is not mapping else [] }}"
       activity_timer_map: >-
-        {% set ns = namespace(pairs=[], overrides=[], previous=[]) %}
+        {% set ns = namespace(pairs=[]) %}
         {% for row in activity_rows if row is mapping %}
           {% if row.get('camera') is string and row.get('timer') is string %}
-            {% set slug = row.camera | replace('camera.', '') | lower | replace('-', '_') %}
-            {% set mapped = (camera_map.get(row.camera, camera_map.get(slug, slug)) if camera_map is mapping else slug) | string | lower | replace(' ', '_') | replace('-', '_') %}
-            {% set ns.overrides = ns.overrides + [row.camera, mapped] %}
             {% set ns.pairs = ns.pairs + [(row.camera, row.timer)] %}
           {% endif %}
         {% endfor %}
-        {% if input_activity_timers is mapping %}
-          {% for key, timer in input_activity_timers.items() if key not in ns.overrides %}
-            {% set ns.previous = ns.previous + [(key, timer)] %}
-          {% endfor %}
-        {% endif %}
-        {{ dict(ns.previous + ns.pairs) }}
+        {{ dict(ns.pairs) }}
       activity_rows_invalid: >-
         {% set ns = namespace(cameras=[], invalid=(input_activity_timer_rows is string or input_activity_timer_rows is mapping or input_activity_timer_rows is not sequence)) %}
         {% for row in activity_rows %}
@@ -522,7 +603,7 @@ action:
           {% if mapped == camera_key and not ns.entity %}{% set ns.entity = ent %}{% endif %}
         {% endfor %}
         {{ ns.entity }}
-      activity_timer: "{{ activity_timer_map.get(camera_entity, activity_timer_map.get(camera_key, '')) | string | trim }}"
+      activity_timer: "{{ activity_timer_map.get(camera_entity, '') | string | trim }}"
       activity_enabled: "{{ activity_timer | length > 0 }}"
       activity_timer_shared: "{{ activity_enabled and activity_timer_map.values() | select('eq', activity_timer) | list | length > 1 }}"
       silence_table_enabled: "{{ input_silence_table | default('', true) | length > 0 }}"
@@ -843,112 +924,166 @@ action:
       last_send_ts: "{{ state_attr(input_cooldown_datetime, 'timestamp') | float(0) if input_cooldown_datetime and normal_send_allowed else 0 }}"
       last_send_context: "{{ states[input_cooldown_datetime].context.id if input_cooldown_datetime and normal_send_allowed else '' }}"
 
-  # Analyze completed events only; no run needs to wait for the next MQTT message.
+  # Native and LLMVision summaries share the final eligibility and stale-result guards.
   - condition: template
-    value_template: "{{ event_type == 'end' and input_provider | string | trim | length > 0 and checks.allowed and event_after.get('has_clip', false) }}"
-  - &check_provider
-    if: >-
-      {% set state = config_entry_attr(input_provider, 'state') %}
-      {{ state.value | default(state) != 'loaded' }}
-    then:
-      - service: logbook.log
-        data:
-          name: Frigate Notification
-          message: The selected LLMVision provider is not loaded. Check its integration configuration.
-      - stop: LLMVision provider unavailable
-  - delay: "00:00:30"
+    value_template: >-
+      {{ event_type == 'end' and checks.allowed and
+         (input_ai_source in ['frigate', 'auto'] or
+          (input_ai_source == 'llmvision' and input_provider | string | trim | length > 0 and event_after.get('has_clip', false))) }}
   - &check_activity
     condition: template
     value_template: "{{ not activity_enabled or (is_state(activity_timer, 'active') and states[activity_timer].context.id == activity_generation) }}"
-  - *read_silence
-  - condition: template
-    value_template: *not_silenced
-  - condition: template
-    value_template: *cooldown_available
-
-  - if: "{{ input_helper | length > 0 }}"
-    then:
-      - wait_template: "{{ is_state(input_helper, 'off') }}"
-        timeout: "00:03:00"
-        continue_on_timeout: false
-
-  # Recheck after waiting: a user may have silenced the camera in the meantime.
-  - *check_activity
-  - *read_silence
-  - condition: template
-    value_template: *not_silenced
-  - condition: template
-    value_template: *cooldown_available
   - variables:
       response: {}
-  - repeat:
-      sequence:
-        - if: "{{ input_helper | length > 0 }}"
-          then:
-            - wait_template: "{{ is_state(input_helper, 'off') }}"
-              timeout: "00:03:00"
-              continue_on_timeout: false
-        - *check_provider
-        - *check_activity
-        - *read_silence
-        - if:
-            - condition: template
-              value_template: >-
-                {{ not is_state(this.entity_id, 'on') or (as_timestamp(now()) | int) < (silence_table.get(camera_key, 0) | int(0)) }}
-          then:
-            - stop: Camera silenced while waiting for AI
-        - if:
-            - condition: template
-              value_template: >-
-                {% set last = state_attr(input_cooldown_datetime, 'timestamp') | float(0) if input_cooldown_datetime else 0 %}
-                {{ input_cooldown_datetime and cooldown_secs | int > 0 and as_timestamp(now()) - last < cooldown_secs | int
-                   and not (last_send_ts | float > 0 and last == last_send_ts | float and states[input_cooldown_datetime].context.id == last_send_context) }}
-          then:
-            - stop: Global cooldown changed while waiting for AI
-        - if: "{{ input_helper | length > 0 }}"
-          then:
-            - service: input_boolean.turn_on
-              target:
-                entity_id: "{{ input_helper }}"
-        - service: llmvision.video_analyzer
-          alias: Analyze Frigate clip
-          continue_on_error: true
-          data:
-            store_in_timeline: true
-            model: "{{ input_model }}"
-            provider: "{{ input_provider }}"
-            max_frames: "{{ input_max_frames }}"
-            include_filename: "{{ input_include_filename }}"
-            target_width: "{{ input_target_width }}"
-            max_tokens: "{{ input_max_tokens }}"
-            generate_title: "{{ input_generate_title }}"
-            expose_images: "{{ input_expose_images }}"
-            event_id: "{{ id }}"
-            message: >-
-              {{ input_prompt }}
-              {% if input_sublabel and sub_label_text %}Unverified Frigate face label: {{ sub_label_text }}. Do not assume it identifies the person.{% endif %}
-          response_variable: response
-        # Release before logging or notification work, including on analyzer errors.
-        - if: "{{ input_helper | length > 0 }}"
-          then:
-            - service: input_boolean.turn_off
-              continue_on_error: true
-              target:
-                entity_id: "{{ input_helper }}"
-        - if: "{{ not (response is mapping and response.get('response_text') is string and response.get('response_text') | trim | length > 0) and repeat.index < input_frigate_retry_attempts | int }}"
-          then:
-            - delay:
-                seconds: "{{ retry_secs }}"
-      until: "{{ (response is mapping and response.get('response_text') is string and response.get('response_text') | trim | length > 0) or repeat.index >= input_frigate_retry_attempts | int }}"
-
-  - if: "{{ not (response is mapping and response.get('response_text') is string and response.get('response_text') | trim | length > 0) }}"
+      ai_wait_started: "{{ as_timestamp(now()) }}"
+  - choose:
+      - conditions: "{{ input_ai_source in ['frigate', 'auto'] }}"
+        sequence:
+          - wait_for_trigger:
+              - trigger: event
+                event_type: frigate_ai_notification_description
+                event_data:
+                  automation_entity: "{{ this.entity_id }}"
+                  event_id: "{{ id }}"
+                  camera: "{{ camera }}"
+              - trigger: event
+                event_type: frigate_ai_notification_description
+                event_data:
+                  automation_entity: "{{ this.entity_id }}"
+                  event_id: "{{ id }}"
+                  camera: ""
+            timeout:
+              seconds: "{{ input_native_timeout }}"
+            continue_on_timeout: true
+          - if: "{{ not wait.completed }}"
+            then:
+              - if: "{{ input_debug }}"
+                then:
+                  - service: logbook.log
+                    data:
+                      name: Frigate Notification
+                      message: "No matching Frigate {{ input_native_type }} text arrived for event {{ id }} before timeout. Auto will use the configured LLMVision fallback if eligible."
+              - if: "{{ input_ai_source == 'frigate' }}"
+                then:
+                  - stop: No native Frigate description received
+            else:
+              - variables:
+                  native_result: "{{ wait.trigger.event.data }}"
+                  response: "{{ dict(response_text=native_result.description, title=(native_result.title or base_title)) }}"
+  - if: "{{ not response }}"
     then:
-      - service: logbook.log
-        data:
-          name: Frigate Notification
-          message: "AI analysis failed for {{ camera }} event {{ id }} after {{ input_frigate_retry_attempts }} attempts."
-      - stop: No AI summary returned
+      - condition: template
+        value_template: "{{ input_provider | string | trim | length > 0 and event_after.get('has_clip', false) }}"
+      - *check_activity
+      - *read_silence
+      - condition: template
+        value_template: *not_silenced
+      - condition: template
+        value_template: *cooldown_available
+      - &check_provider
+        if: >-
+          {% set state = config_entry_attr(input_provider, 'state') %}
+          {{ state.value | default(state) != 'loaded' }}
+        then:
+          - service: logbook.log
+            data:
+              name: Frigate Notification
+              message: The selected LLMVision provider is not loaded. Check its integration configuration.
+          - stop: LLMVision provider unavailable
+      - delay:
+          seconds: "{{ [0, 30 - (as_timestamp(now()) - ai_wait_started | float)] | max }}"
+      - *check_activity
+      - *read_silence
+      - condition: template
+        value_template: *not_silenced
+      - condition: template
+        value_template: *cooldown_available
 
+      - if: "{{ input_helper | length > 0 }}"
+        then:
+          - wait_template: "{{ is_state(input_helper, 'off') }}"
+            timeout: "00:03:00"
+            continue_on_timeout: false
+
+      # Recheck after waiting: a user may have silenced the camera in the meantime.
+      - *check_activity
+      - *read_silence
+      - condition: template
+        value_template: *not_silenced
+      - condition: template
+        value_template: *cooldown_available
+      - variables:
+          response: {}
+      - repeat:
+          sequence:
+            - if: "{{ input_helper | length > 0 }}"
+              then:
+                - wait_template: "{{ is_state(input_helper, 'off') }}"
+                  timeout: "00:03:00"
+                  continue_on_timeout: false
+            - *check_provider
+            - *check_activity
+            - *read_silence
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ not is_state(this.entity_id, 'on') or (as_timestamp(now()) | int) < (silence_table.get(camera_key, 0) | int(0)) }}
+              then:
+                - stop: Camera silenced while waiting for AI
+            - if:
+                - condition: template
+                  value_template: >-
+                    {% set last = state_attr(input_cooldown_datetime, 'timestamp') | float(0) if input_cooldown_datetime else 0 %}
+                    {{ input_cooldown_datetime and cooldown_secs | int > 0 and as_timestamp(now()) - last < cooldown_secs | int
+                       and not (last_send_ts | float > 0 and last == last_send_ts | float and states[input_cooldown_datetime].context.id == last_send_context) }}
+              then:
+                - stop: Global cooldown changed while waiting for AI
+            - if: "{{ input_helper | length > 0 }}"
+              then:
+                - service: input_boolean.turn_on
+                  target:
+                    entity_id: "{{ input_helper }}"
+            - service: llmvision.video_analyzer
+              alias: Analyze Frigate clip
+              continue_on_error: true
+              data:
+                store_in_timeline: true
+                model: "{{ input_model }}"
+                provider: "{{ input_provider }}"
+                max_frames: "{{ input_max_frames }}"
+                include_filename: "{{ input_include_filename }}"
+                target_width: "{{ input_target_width }}"
+                max_tokens: "{{ input_max_tokens }}"
+                generate_title: "{{ input_generate_title }}"
+                expose_images: "{{ input_expose_images }}"
+                event_id: "{{ id }}"
+                message: >-
+                  {{ input_prompt }}
+                  {% if input_sublabel and sub_label_text %}Unverified Frigate face label: {{ sub_label_text }}. Do not assume it identifies the person.{% endif %}
+              response_variable: response
+            # Release before logging or notification work, including on analyzer errors.
+            - if: "{{ input_helper | length > 0 }}"
+              then:
+                - service: input_boolean.turn_off
+                  continue_on_error: true
+                  target:
+                    entity_id: "{{ input_helper }}"
+            - if: "{{ not (response is mapping and response.get('response_text') is string and response.get('response_text') | trim | length > 0) and repeat.index < input_frigate_retry_attempts | int }}"
+              then:
+                - delay:
+                    seconds: "{{ retry_secs }}"
+          until: "{{ (response is mapping and response.get('response_text') is string and response.get('response_text') | trim | length > 0) or repeat.index >= input_frigate_retry_attempts | int }}"
+
+      - if: "{{ not (response is mapping and response.get('response_text') is string and response.get('response_text') | trim | length > 0) }}"
+        then:
+          - service: logbook.log
+            data:
+              name: Frigate Notification
+              message: "AI analysis failed for {{ camera }} event {{ id }} after {{ input_frigate_retry_attempts }} attempts."
+          - stop: No AI summary returned
+
+  - condition: template
+    value_template: "{{ response is mapping and response.get('response_text') is string and response.get('response_text') | trim | length > 0 }}"
   - *check_activity
   - variables:
       summary_title: "{{ (response.get('title') or response.get('response_title') or base_title) if input_generate_title else base_title }}"

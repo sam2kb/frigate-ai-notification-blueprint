@@ -30,7 +30,8 @@ from homeassistant.components.mqtt.models import ReceiveMessage
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.script import Script
+from homeassistant.helpers import trigger as trigger_helper
+from homeassistant.helpers.script import Script, async_validate_actions_config
 from homeassistant.helpers.selector import ObjectSelector, SelectSelector
 from homeassistant.setup import async_setup_component
 from homeassistant.util.yaml import load_yaml_dict
@@ -104,6 +105,15 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         loader.async_setup(self.hass)
         self.hass.config_entries = config_entries.ConfigEntries(self.hass, {})
         await bootstrap.async_load_base_functionality(self.hass)
+        # Load actual MQTT trigger code without needing a configured broker entry.
+        original_platform = trigger_helper._async_get_trigger_platform
+        async def platform_for_wait(hass, key):
+            if key == "mqtt":
+                return "mqtt", mqtt_trigger
+            if key == "event":
+                return "homeassistant", event_trigger
+            return await original_platform(hass, key)
+        self.enterContext(patch.object(trigger_helper, "_async_get_trigger_platform", side_effect=platform_for_wait))
         # Register real entries/devices so templates use HA's actual lookup
         # functions, including ConfigEntryState rather than a mocked string.
         self.entries = {}
@@ -204,7 +214,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         config = materialize(selected)
         # Check the real, unmodified action schema as well as the accelerated script.
         cv.SCRIPT_SCHEMA(config["actions"])
-        sequence = cv.SCRIPT_SCHEMA(fast_delays(config["actions"]))
+        sequence = await async_validate_actions_config(self.hass, cv.SCRIPT_SCHEMA(fast_delays(config["actions"])))
         script = Script(self.hass, sequence, "Frigate regression", "automation", script_mode="parallel")
         trigger = {"id": "frigate-event", "payload_json": {"type": kind, "before": before or {}, "after": after if after is not None else tracked()}}
         if mobile is not None:
@@ -217,27 +227,44 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         selected = {"camera": ["camera.front_door"], "notify_device": [self.devices["phone"]]} | (inputs or {})
         raw_config = materialize(selected)
         config = PLATFORM_SCHEMA({**raw_config, "actions": fast_delays(raw_config["actions"])})
-        script = Script(self.hass, config["actions"], "Trigger regression", "automation", script_mode=config["mode"])
         subscriptions = {}
+        self.mqtt_subscriptions = subscriptions
 
         def subscribe(hass, topic, callback, **kwargs):
-            subscriptions[topic] = callback
-            return lambda: subscriptions.pop(topic, None)
+            subscriptions.setdefault(topic, []).append(callback)
+            def remove():
+                callbacks = subscriptions.get(topic, [])
+                if callback in callbacks:
+                    callbacks.remove(callback)
+                if not callbacks:
+                    subscriptions.pop(topic, None)
+            return remove
+
+        # Keep HA's actual trigger schema, matching and wait lifecycle. Replace
+        # broker transport and platform discovery (no broker config entry in tests).
+        self.enterContext(patch.object(mqtt_trigger, "async_subscribe_internal", side_effect=subscribe))
+        actions = await async_validate_actions_config(self.hass, config["actions"])
+        script = Script(self.hass, actions, "Trigger regression", "automation", script_mode=config["mode"])
 
         async def run(variables, context=None):
             await script.async_run({"this": self.hass.states.get("automation.frigate_test"), **variables}, context=context or Context())
 
+        trigger_variables = config["trigger_variables"].async_render(self.hass, {}, limited=True) if config.get("trigger_variables") else {}
         for index, trigger in enumerate(config["triggers"]):
+            enabled = trigger.get("enabled", True)
+            if hasattr(enabled, "async_render"):
+                enabled = enabled.async_render(trigger_variables, limited=True)
+            if not enabled:
+                continue
             platform = {"mqtt": mqtt_trigger, "event": event_trigger}[trigger["platform"]]
             trigger = platform.TRIGGER_SCHEMA(trigger)
-            info = {"domain": "automation", "name": "Frigate regression", "variables": {}, "trigger_data": {"id": trigger["id"], "idx": str(index), "alias": None}}
+            info = {"domain": "automation", "name": "Frigate regression", "variables": trigger_variables, "trigger_data": {"id": trigger["id"], "idx": str(index), "alias": None}}
             with patch.object(mqtt_trigger, "async_subscribe_internal", side_effect=subscribe):
                 remove = await platform.async_attach_trigger(self.hass, trigger, run, info)
             self.addCleanup(remove)
 
         async def publish(payload, topic="frigate/events", wait=True):
-            callback = subscriptions.get(topic)
-            if callback:
+            for callback in list(subscriptions.get(topic, [])):
                 callback(ReceiveMessage(topic, payload, 0, False, topic, self.clock.timestamp()))
             if wait:
                 await self.hass.async_block_till_done()
@@ -684,7 +711,10 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
 
     def activity_inputs(self, **changes):
         return {
-            "activity_timers": {"camera.front_door": "timer.front_activity", "camera.back_yard": "timer.back_activity"},
+            "activity_timer_rows": [
+                {"camera": "camera.front_door", "timer": "timer.front_activity"},
+                {"camera": "camera.back_yard", "timer": "timer.back_activity"},
+            ],
             "camera": ["camera.front_door", "camera.back_yard"],
             **changes,
         }
@@ -708,13 +738,12 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         for timer in ("timer.front_activity", "timer.back_activity"):
             self.assertEqual(self.hass.states.get(timer).state, "active")
 
-    async def test_activity_picker_rows_override_legacy_camera_mapping(self):
-        for key, previous in (("camera.front_door", "timer.missing"), ("front_door", "timer.front_activity")):
-            inputs = self.activity_inputs(activity_timers={key: previous},
-                                          activity_timer_rows=[{"camera": "camera.front_door", "timer": "timer.front_activity"}])
-            await self.run_event(inputs=inputs)
-            self.assertEqual(len(self.fresh_alerts()), 1)
-            self.assertEqual(self.hass.states.get("timer.front_activity").state, "active")
+    async def test_activity_picker_rows_follow_camera_name_override(self):
+        inputs = self.activity_inputs(camera_name_map=json.dumps({"camera.front_door": "EntryCam"}))
+        await self.run_event(after=tracked(camera="EntryCam"), inputs=inputs)
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertEqual(self.hass.states.get("timer.front_activity").state, "active")
+        self.assertEqual(self.hass.states.get("timer.back_activity").state, "idle")
 
     async def test_activity_picker_rows_reject_duplicates_and_shared_timers(self):
         for rows in ([{"camera": "camera.front_door", "timer": "timer.front_activity"},
@@ -790,7 +819,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len({n["data"]["tag"] for n in self.notifications}), 1)
 
     async def test_activity_invalid_timer_stops_with_configuration_message(self):
-        await self.run_event(inputs=self.activity_inputs(activity_timers={"camera.front_door": "timer.missing"}))
+        await self.run_event(inputs=self.activity_inputs(activity_timer_rows=[{"camera": "camera.front_door", "timer": "timer.missing"}]))
         self.assertEqual(self.notifications, [])
         self.assertIn("missing, unavailable, or shared", self.logs[-1]["message"])
 
@@ -820,7 +849,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.notifications[-1]["data"]["push"]["interruption-level"], "passive")
 
     async def test_activity_shared_timer_is_rejected_instead_of_coupling_cameras(self):
-        await self.run_event(inputs=self.activity_inputs(activity_timers={"camera.front_door": "timer.front_activity", "camera.back_yard": "timer.front_activity"}))
+        await self.run_event(inputs=self.activity_inputs(activity_timer_rows=[{"camera": "camera.front_door", "timer": "timer.front_activity"}, {"camera": "camera.back_yard", "timer": "timer.front_activity"}]))
         self.assertEqual(self.notifications, [])
         self.assertIn("shared by cameras", self.logs[-1]["message"])
 
@@ -879,6 +908,216 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         # No END was required, and more snapshots still cannot resend this card.
         await self.run_event("update", before=after, after=after | {"snapshot": {"frame_time": 1800000062}}, inputs=inputs)
         self.assertEqual(len(self.notifications), 2)
+
+    async def start_native_wait(self, event_after=None, **changes):
+        inputs = {"ai_source": "frigate", "native_description_timeout": 1, **changes}
+        publish = await self.attach_triggers(inputs)
+        event = {"type": "end", "before": tracked(), "after": event_after if event_after is not None else tracked()}
+        await publish(json.dumps(event), inputs.get("mqtt_topic", "frigate/events"), wait=False)
+        prefix = inputs.get("mqtt_topic", "frigate/events").rsplit("/", 1)[0]
+        topic = inputs.get("native_mqtt_topic") or prefix + ("/reviews" if inputs.get("frigate_description_type") == "review" else "/tracked_object_update")
+        for _ in range(1000):
+            if self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0):
+                return publish, topic
+            await asyncio.sleep(0)
+        self.fail("Native description wait did not subscribe")
+
+    async def test_auto_object_text_skips_configured_llmvision(self):
+        publish, topic = await self.start_native_wait(ai_source="auto", provider="test")
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "camera": "front_door", "description": "Native object text."}), topic)
+        self.assertEqual(self.notifications[-1]["message"], "Native object text.")
+        self.assertEqual(len(self.notifications), 2)
+        self.assertEqual(self.ai_calls, [])
+        # A second text format for the same event cannot produce another update.
+        await publish(json.dumps({"type": "genai", "after": {"camera": "front_door", "data": {"detections": [tracked()["id"]], "metadata": {"scene": "Later review text."}}}}), "frigate/reviews")
+        self.assertEqual(len(self.notifications), 2)
+
+    async def test_auto_discovers_review_without_selecting_its_type(self):
+        publish, _ = await self.start_native_wait(ai_source="auto", provider="test")
+        await publish(json.dumps({"type": "genai", "after": {"camera": "front_door", "data": {"detections": [tracked()["id"]], "metadata": {"scene": "Native review text.", "title": "Review title"}}}}), "frigate/reviews")
+        self.assertEqual(self.notifications[-1]["message"], "Native review text.")
+        self.assertEqual(self.notifications[-1]["title"], "Review title")
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_auto_missing_native_text_falls_back_once(self):
+        publish = await self.attach_triggers({"ai_source": "auto", "provider": "test", "native_description_timeout": .01})
+        await publish(json.dumps({"type": "end", "after": tracked()}))
+        self.assertEqual(len(self.ai_calls), 1)
+        self.assertEqual(self.notifications[-1]["message"], self.ai_result["response_text"])
+        self.assertEqual(self.notifications[-1]["data"]["tag"], self.notifications[0]["data"]["tag"])
+
+    async def test_auto_without_fallback_provider_keeps_basic_alert(self):
+        self.hass.services.async_remove("llmvision", "video_analyzer")
+        publish = await self.attach_triggers({"ai_source": "auto", "native_description_timeout": .01})
+        await publish(json.dumps({"type": "end", "after": tracked()}))
+        self.assertEqual(len(self.notifications), 1)
+        self.assertEqual(self.ai_calls, [])
+        self.assertFalse(any("provider is not loaded" in str(item) for item in self.logs))
+
+    async def test_auto_without_clip_does_not_call_fallback(self):
+        publish = await self.attach_triggers({"ai_source": "auto", "provider": "test", "native_description_timeout": .01})
+        await publish(json.dumps({"type": "end", "after": tracked(has_clip=False, has_snapshot=True)}))
+        self.assertEqual(len(self.notifications), 1)
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_auto_superseded_wait_does_not_start_fallback(self):
+        inputs = self.activity_inputs(ai_source="auto", provider="test", native_description_timeout=.05)
+        publish, _ = await self.start_native_wait(**inputs)
+        self.clock += timedelta(seconds=1)
+        await publish(json.dumps({"type": "new", "after": tracked(id="newer-object")} ), wait=False)
+        await self.hass.async_block_till_done()
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_auto_silenced_during_native_wait_does_not_start_fallback(self):
+        publish, _ = await self.start_native_wait(ai_source="auto", provider="test", native_description_timeout=.05, silence_table="input_text.silence")
+        await self.hass.services.async_call("input_text", "set_value", {"entity_id": "input_text.silence", "value": json.dumps({"front_door": int(self.clock.timestamp()) + 300})}, blocking=True)
+        await self.hass.async_block_till_done()
+        self.assertEqual(self.ai_calls, [])
+        self.assertEqual(len(self.notifications), 1)
+
+    async def test_auto_wait_counts_toward_clip_readiness_delay(self):
+        publish, _ = await self.start_native_wait(ai_source="auto", provider="test", native_description_timeout=.02)
+        # Model an already elapsed 90-second native wait without a real 90s sleep.
+        self.clock += timedelta(seconds=90)
+        before_fallback = self.clock
+        await self.hass.async_block_till_done()
+        self.assertEqual(len(self.ai_calls), 1)
+        self.assertEqual(self.clock, before_fallback)
+
+    async def test_native_object_description_updates_quietly_without_llmvision(self):
+        self.hass.services.async_remove("llmvision", "video_analyzer")
+        publish, topic = await self.start_native_wait(provider="test", log_helper="input_text.ai_log")
+        self.assertEqual(len(self.notifications), 1)  # alert precedes AI text
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "A person carries a parcel."}), topic)
+        self.assertEqual(len(self.notifications), 2)
+        self.assertEqual(self.notifications[-1]["message"], "A person carries a parcel.")
+        self.assertEqual(self.notifications[-1]["data"]["tag"], self.notifications[0]["data"]["tag"])
+        self.assertEqual(self.notifications[-1]["data"]["push"]["interruption-level"], "passive")
+        self.assertEqual(self.ai_calls, [])
+        self.assertIn("carries a parcel", self.hass.states.get("input_text.ai_log").state)
+        self.assertEqual(self.hass.states.get("input_boolean.busy").state, "off")
+
+    async def test_native_review_matches_detection_id_and_uses_scene_and_title(self):
+        publish, topic = await self.start_native_wait(frigate_description_type="review")
+        payload = {"type": "genai", "after": {"id": "different-review-id", "camera": "front_door", "data": {
+            "detections": [tracked()["id"]], "metadata": {"title": "Parcel delivery", "scene": "A courier leaves a parcel and walks away."}}}}
+        await publish(json.dumps(payload), topic)
+        self.assertEqual(self.notifications[-1]["title"], "Parcel delivery")
+        self.assertEqual(self.notifications[-1]["message"], "A courier leaves a parcel and walks away.")
+        self.assertIn(tracked()["id"], self.notifications[-1]["data"]["url"])
+        self.assertNotIn("different-review-id", self.notifications[-1]["data"]["url"])
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_native_object_ignores_unrelated_malformed_empty_and_wrong_camera_updates(self):
+        publish, topic = await self.start_native_wait()
+        for payload in ("bad json", "[]", json.dumps({"type": "description", "id": "other", "description": "Wrong"}),
+                        json.dumps({"type": "face", "id": tracked()["id"], "description": "Wrong"}),
+                        json.dumps({"type": "description", "id": tracked()["id"], "description": "  "}),
+                        json.dumps({"type": "description", "id": tracked()["id"], "camera": "back_yard", "description": "Wrong"})):
+            await publish(payload, topic, wait=False)
+            await asyncio.sleep(0)
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "Correct"}), topic)
+        self.assertEqual([n["message"] for n in self.notifications][-1], "Correct")
+        self.assertEqual(len(self.notifications), 2)
+
+    async def test_native_review_rejects_unrelated_review_camera_and_non_narrative_updates(self):
+        publish, topic = await self.start_native_wait(frigate_description_type="review")
+        payload = {"type": "genai", "after": {"camera": "front_door", "data": {"detections": [tracked()["id"]], "metadata": {"scene": "Valid"}}}}
+        for invalid in (payload | {"type": "end"},
+                        payload | {"after": payload["after"] | {"camera": "back_yard"}},
+                        payload | {"after": payload["after"] | {"data": {"detections": ["other"], "metadata": {"scene": "Wrong"}}}},
+                        payload | {"after": payload["after"] | {"data": []}}):
+            await publish(json.dumps(invalid), topic, wait=False)
+            await asyncio.sleep(0)
+        await publish(json.dumps(payload), topic)
+        self.assertEqual(len(self.notifications), 2)
+        self.assertEqual(self.notifications[-1]["message"], "Valid")
+        self.assertEqual(self.notifications[-1]["title"], "Person detected")
+
+    async def test_native_custom_event_prefix_and_explicit_description_topic(self):
+        for extra in ({"mqtt_topic": "outside/events"}, {"native_mqtt_topic": "special/descriptions"}):
+            publish, topic = await self.start_native_wait(**extra)
+            await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "Custom topic works"}), topic)
+            self.assertEqual(self.notifications[-1]["message"], "Custom topic works")
+
+    async def test_native_timeout_keeps_basic_alert_without_calling_llm(self):
+        publish = await self.attach_triggers({"ai_source": "frigate", "native_description_timeout": .02, "debug": True, "provider": "test"})
+        await publish(json.dumps({"type": "end", "after": tracked()}))
+        self.assertEqual(len(self.notifications), 1)
+        self.assertEqual(self.ai_calls, [])
+        self.assertTrue(any("before timeout" in n["message"] for n in self.logs))
+
+    async def test_native_description_can_use_snapshot_without_retained_clip(self):
+        publish, topic = await self.start_native_wait(event_after=tracked(has_clip=False, has_snapshot=True))
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "Snapshot description"}), topic)
+        self.assertEqual(self.notifications[-1]["message"], "Snapshot description")
+        self.assertTrue(self.notifications[-1]["data"]["url"].endswith("snapshot.jpg"))
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_native_description_does_not_bypass_quality_zone_or_face_filters(self):
+        for after, extra in ((tracked(top_score=.2), {}), (tracked(false_positive=True), {}),
+                             (tracked(has_clip=False), {"require_clip": True}),
+                             (tracked(), {"zones_exclude": "driveway"}),
+                             (tracked(sub_label=["Alex", .9]), {"suppress_known_faces": "Alex"})):
+            await self.run_event("end", after=after, inputs={"ai_source": "frigate", "native_description_timeout": .01, **extra})
+        self.assertEqual(self.notifications, [])
+        self.assertEqual(self.ai_calls, [])
+
+    async def test_off_source_suppresses_llm_even_with_saved_provider(self):
+        await self.run_event("end", inputs={"ai_source": "none", "provider": "test"})
+        self.assertEqual(self.ai_calls, [])
+        self.assertEqual(len(self.notifications), 1)
+
+    async def test_native_result_cannot_overwrite_newer_activity(self):
+        inputs = self.activity_inputs()
+        publish, topic = await self.start_native_wait(**inputs)
+        self.clock += timedelta(seconds=1)
+        await self.run_event(after=tracked(id="newer-track"), inputs=inputs | {"ai_source": "none"})
+        count = len(self.notifications)
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "Outdated"}), topic)
+        self.assertEqual(len(self.notifications), count)
+        self.assertFalse(any(n["message"] == "Outdated" for n in self.notifications))
+
+    async def test_native_wait_is_scoped_to_its_own_automation(self):
+        publish, topic = await self.start_native_wait()
+        self.hass.bus.async_fire("frigate_ai_notification_description", {
+            "automation_entity": "automation.another_instance", "event_id": tracked()["id"],
+            "camera": "front_door", "description": "Wrong automation", "title": "Wrong"})
+        await asyncio.sleep(0)
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "Own automation"}), topic)
+        self.assertEqual(len(self.notifications), 2)
+        self.assertEqual(self.notifications[-1]["message"], "Own automation")
+
+    async def test_native_review_only_latest_waiter_updates_the_camera_card(self):
+        inputs = self.activity_inputs(ai_source="frigate", frigate_description_type="review", native_description_timeout=1)
+        publish, topic = await self.start_native_wait(**inputs)
+        self.clock += timedelta(seconds=1)
+        await publish(json.dumps({"type": "end", "before": tracked(id="later-track"), "after": tracked(id="later-track")}), wait=False)
+        for _ in range(1000):
+            if self.hass.bus.async_listeners().get("frigate_ai_notification_description", 0) >= 4:
+                break
+            await asyncio.sleep(0)
+        else:
+            self.fail("Second native waiter did not start")
+        await publish(json.dumps({"type": "genai", "after": {"camera": "front_door", "data": {
+            "detections": [tracked()["id"], "later-track"], "metadata": {"scene": "One review narrative"}}}}), topic)
+        self.assertEqual(sum(n["message"] == "One review narrative" for n in self.notifications), 1)
+        self.assertEqual(len(self.fresh_alerts()), 1)
+        self.assertIn("/later-track/", self.notifications[-1]["data"]["url"])
+
+    async def test_native_respects_competing_global_cooldown_while_waiting(self):
+        publish, topic = await self.start_native_wait(cooldown={"seconds": 60}, cooldown_timestamp="input_datetime.cooldown")
+        self.clock += timedelta(seconds=1)
+        await self.hass.services.async_call("input_datetime", "set_datetime", {
+            "entity_id": "input_datetime.cooldown", "timestamp": self.clock.timestamp()}, blocking=True)
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "Suppressed"}), topic)
+        self.assertEqual(len(self.notifications), 1)
+
+    async def test_native_respects_silence_during_wait(self):
+        publish, topic = await self.start_native_wait(silence_table="input_text.silence")
+        await self.hass.services.async_call("input_text", "set_value", {"entity_id": "input_text.silence", "value": json.dumps({"front_door": self.clock.timestamp()+60})}, blocking=True)
+        await publish(json.dumps({"type": "description", "id": tracked()["id"], "description": "Muted"}), topic)
+        self.assertEqual(len(self.notifications), 1)
 
     async def test_irrelevant_camera_and_event_types_are_ignored(self):
         await self.run_event(after=tracked(camera="other_camera"))
