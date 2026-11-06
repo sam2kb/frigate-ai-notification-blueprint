@@ -266,6 +266,12 @@ content: "{{ states('input_text.frigate_ai_log') }}"
 
 With both HA base URL inputs empty, media links remain relative and the Companion app resolves them against the sending server. An explicit External Base URL takes precedence over Internal Base URL. Use a URL reachable by every receiving device. The Frigate UI URL is independent and controls the Open Frigate action; it does not change HA's media proxy URLs.
 
+### Android shows a connection error while the clip plays
+
+If you hear the clip's audio behind a connection error in the Android Companion app, try opening the same clip in your browser. If it plays there, set **Advanced Options → External Base URL** in the automation to the full HTTPS address of your Home Assistant instance. New alerts will use absolute media links, which Android can open in the default browser. This setting also changes the URL used for notification thumbnails. [Home Assistant Android issue #7380](https://github.com/home-assistant/android/issues/7380)
+
+If your Home Assistant URL requires a TLS client certificate (mTLS), test it in the browser that handles notification links before enabling the workaround. Install the certificate in Android under **VPN and apps**. The browser must be able to select and present it independently of the Companion app. If Firefox skips the picker and the URL fails, try Chrome. Leave both Base URL fields blank to use the Companion app's automatic URL selection. [Android certificate setup](https://companion.home-assistant.io/docs/getting_started/#tls-client-authentication)
+
 ---
 
 Enable **Debugging** to see rejected camera, label, event-type and malformed-payload reasons in the logbook. Zone diagnostics show the observed IDs, configured patterns and whether an include failed or an exclusion matched. Debug output includes camera and recognized face names; leave it off during normal use.
