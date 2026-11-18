@@ -268,9 +268,15 @@ With both HA base URL inputs empty, media links remain relative and the Companio
 
 ### Android shows a connection error while the clip plays
 
-If you hear the clip's audio behind a connection error in the Android Companion app, try opening the same clip in your browser. If it plays there, set **Advanced Options → External Base URL** in the automation to the full HTTPS address of your Home Assistant instance. New alerts will use absolute media links, which Android can open in the default browser. This setting also changes the URL used for notification thumbnails. [Home Assistant Android issue #7380](https://github.com/home-assistant/android/issues/7380)
+The error usually appears over a clip that is already playing. The Companion app opens the link in its in-app WebView, which waits for the Home Assistant frontend to connect back to the app. A clip or snapshot URL never does that, so after 10 seconds the app draws "Unable to connect" over the media. You can hear the audio behind it, and the connectivity checks in the error panel pass. The same URL plays normally in a browser. [Home Assistant Android issue #7380](https://github.com/home-assistant/android/issues/7380)
 
-If your Home Assistant URL requires a TLS client certificate (mTLS), test it in the browser that handles notification links before enabling the workaround. Install the certificate in Android under **VPN and apps**. The browser must be able to select and present it independently of the Companion app. If Firefox skips the picker and the URL fails, try Chrome. Leave both Base URL fields blank to use the Companion app's automatic URL selection. [Android certificate setup](https://companion.home-assistant.io/docs/getting_started/#tls-client-authentication)
+The workaround is to send absolute links so Android hands them to a browser. Set **Advanced Options → External Base URL** in the automation to the full HTTPS address of your Home Assistant instance. New alerts will use absolute media links, which Android can open in the default browser. This setting also changes the URL used for notification thumbnails.
+
+The browser route depends on the link's host differing from the server URL configured in the Companion app. When the two match, the app treats the link as internal, keeps it in the WebView, and the error stays. Links that open the native video player (`intent://` URIs) avoid the WebView too, but this blueprint writes the tap action itself and has no setting for them.
+
+As of November 2026, the fix is in review in the app and not in a release yet. When it ships, links to files outside the frontend open in a Custom Tab and relative links stop failing, so clear External Base URL again and leave both base URL inputs empty. [PR #7868](https://github.com/home-assistant/android/pull/7868) tracks the merge.
+
+If your Home Assistant URL requires a TLS client certificate (mTLS), test it in the browser that handles notification links before enabling the workaround. Install the certificate in Android under **VPN and apps**. The browser must be able to select and present it independently of the Companion app. If Firefox skips the picker and the URL fails, try Chrome. Without the workaround, leave both Base URL fields blank so the app selects the server URL itself. Once the app fix ships, the Custom Tab uses the browser's certificate handling, so the same check applies. [Android certificate setup](https://companion.home-assistant.io/docs/getting_started/#tls-client-authentication)
 
 ---
 

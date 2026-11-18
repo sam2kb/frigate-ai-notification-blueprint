@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased]
+
+- Correct the README guidance for the Android clip playback error. Absolute media links only leave the app when their host differs from the server URL configured in the Companion app. Add the app fix status and the step that removes the workaround once it ships.
+
 ## [1.2.1] - 2026-10-20
 
 - Reserve processing capacity before starting long AI work, and cancel older native waits when newer eligible activity arrives on the same camera. At capacity, skip the AI summary so incoming events can still be handled.
